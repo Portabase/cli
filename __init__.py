@@ -1,4 +1,4 @@
-__version__ = "25.12.1b1"
+__version__ = "25.12.1b2"
 
 #25 = Année
 #12 = Mois

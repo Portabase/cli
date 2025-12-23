@@ -61,6 +61,7 @@ def agent(
         if mode == "manual":
             console.print("[info]External/Existing Database Configuration[/info]")
             db_type = Prompt.ask("Type", choices=["postgresql", "mysql", "mariadb"], default="postgresql")
+            friendly_name = Prompt.ask("Display Name", default="External DB")
             db_name = Prompt.ask("Database Name")
             host = Prompt.ask("Host", default="localhost")
             port = IntPrompt.ask("Port", default=5432 if db_type == "postgresql" else 3306)
@@ -68,7 +69,8 @@ def agent(
             password = Prompt.ask("Password", password=True)
             
             add_db_to_json(path, {
-                "name": db_name,
+                "name": friendly_name,
+                "database": db_name,
                 "type": db_type,
                 "username": user,
                 "password": password,
@@ -108,6 +110,7 @@ def agent(
                 
                 add_db_to_json(path, {
                     "name": db_name,
+                    "database": db_name,
                     "type": "postgresql",
                     "username": db_user,
                     "password": db_pass,
@@ -143,6 +146,7 @@ def agent(
                 
                 add_db_to_json(path, {
                     "name": db_name,
+                    "database": db_name,
                     "type": "mysql",
                     "username": db_user,
                     "password": db_pass,

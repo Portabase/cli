@@ -22,7 +22,8 @@ def list_dbs(name: str = typer.Argument(..., help="Name of the agent")):
         return
 
     table = Table(title=f"Databases for {name}")
-    table.add_column("DB Name", style="cyan")
+    table.add_column("Display Name", style="cyan")
+    table.add_column("Database", style="blue")
     table.add_column("Type", style="magenta")
     table.add_column("Host:Port", style="green")
     table.add_column("User", style="white")
@@ -31,6 +32,7 @@ def list_dbs(name: str = typer.Argument(..., help="Name of the agent")):
     for db in dbs:
         table.add_row(
             db.get("name", "N/A"),
+            db.get("database", db.get("name", "N/A")),
             db.get("type", "N/A"),
             f"{db.get('host', 'N/A')}:{db.get('port', 'N/A')}",
             db.get("username", "N/A"),
@@ -46,6 +48,7 @@ def add_db(name: str = typer.Argument(..., help="Name of the agent")):
     console.print(Panel("Add External Database Connection", style="bold blue"))
     
     db_type = Prompt.ask("Type", choices=["postgresql", "mysql", "mariadb"], default="postgresql")
+    friendly_name = Prompt.ask("Display Name", default="External DB")
     db_name = Prompt.ask("Database Name")
     host = Prompt.ask("Host", default="localhost")
     port = IntPrompt.ask("Port", default=5432 if db_type == "postgresql" else 3306)
@@ -53,7 +56,8 @@ def add_db(name: str = typer.Argument(..., help="Name of the agent")):
     password = Prompt.ask("Password", password=True)
 
     entry = {
-        "name": db_name,
+        "name": friendly_name,
+        "database": db_name,
         "type": db_type,
         "username": user,
         "password": password,
