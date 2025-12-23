@@ -54,7 +54,10 @@ jobs:
           path: ./dist
           pattern: portabase_*
           merge-multiple: true
-
+      - name: Generate Checksums
+        working-directory: ./dist
+        run: |
+          sha256sum portabase_* > checksums.txt
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
