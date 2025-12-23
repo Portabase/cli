@@ -23,7 +23,7 @@ jobs:
             runner: macos-latest
           - os: macos
             arch: amd64
-            runner: macos-13
+            runner: macos-15
     
     steps:
       - uses: actions/checkout@v4
