@@ -72,13 +72,11 @@ jobs:
           configurationJson: |
             {
               "template": "# 📋 Changelog\n\n## 🚀 Changements\n#commits",
-              "fetch_via_commits": true,
-              "fetch_reviewers": false,
-              "fetch_release_information": true,
+              "fetchViaCommits": true,
+              "fetchReviews": true,
+              "fetchReleaseInformation": true,
               "sort": "DESC",
               "commit_template": "- #TITLE ([#HASH](#URL))",
-              "max_commits": 100,
-              "ignore_labels": ["ignore"]
             }
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
