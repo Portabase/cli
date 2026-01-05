@@ -65,26 +65,26 @@ jobs:
         working-directory: ./dist
         run: |
           sha256sum portabase_* > checksums.txt
-      - name: Build Changelog
-        id: build_changelog
-        uses: mikepenz/release-changelog-builder-action@v4
-        with:
-          configurationJson: |
-            {
-              "template": "#📋 Changelog\n\n## 🚀 Commits\n#commits\n\n## 🐛 Issues Fixed\n#issues",
-              "pr_template": "- #TITLE (#PR)",
-              "commit_template": "- #TITLE (#HASH)",
-              "categories": [],
-              "ignore_labels": [],
-              "sort": "ASC",
-              "fetch_via_commits": true,
-              "fetch_reviewers": false,
-              "fetch_release_information": true,
-              "reviews": false,
-              "filter_commits": false
-            }
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Generate Changelog
+        id: changelog
+        shell: bash
+        run: |
+          PREVIOUS_TAG=$(git describe --tags --abbrev=0 --exclude="${{ github.ref_name }}" 2>/dev/null || echo "")
+          
+          echo "Tag actuel: ${{ github.ref_name }}"
+          echo "Tag précédent: $PREVIOUS_TAG"
+          
+          echo "content<<EOF" >> $GITHUB_OUTPUT
+          echo "" >> $GITHUB_OUTPUT
+          
+          if [ -z "$PREVIOUS_TAG" ]; then
+            git log --pretty=format:"- %s (%h)" >> $GITHUB_OUTPUT
+          else
+            git log $PREVIOUS_TAG..HEAD --pretty=format:"- %s (%h)" >> $GITHUB_OUTPUT
+          fi
+          
+          echo "" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
