@@ -1,7 +1,7 @@
 <br />
 <div align="center">
   <a href="https://portabase.io">
-    <img src="http://github.com/Portabase/cli/blob/main/.github/assets/logo.png" alt="Logo" width="80" height="80">
+    <img src="https://github.com/Portabase/cli/blob/main/.github/assets/logo.png?raw=true" alt="Logo" width="80" height="80">
   </a>
 
 <h3 align="center">Portabase CLI</h3>
