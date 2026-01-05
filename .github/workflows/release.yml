@@ -69,13 +69,10 @@ jobs:
         id: build_changelog
         uses: mikepenz/release-changelog-builder-action@v5
         with:
+          mode: "COMMIT"
           configurationJson: |
             {
-              "template": "# 📋 Changelog\n\n## 🚀 Changements\n#commits",
-              "fetchViaCommits": true,
-              "fetchReviews": true,
-              "fetchReleaseInformation": true,
-              "sort": "DESC",
+              "template": "# 📋 Changelog\n\n## 🚀 Changes\n#commits",
               "commit_template": "- #TITLE ([#HASH](#URL))",
             }
         env:
