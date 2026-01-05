@@ -38,8 +38,8 @@ jobs:
         shell: bash
         run: |
           VERSION="${{ github.ref_name }}"
-          VERSION="${VERSION#v}"
-          python -c "import re; p='pyproject.toml'; c=open(p).read(); c=re.sub(r'version = \".*\"', f'version = \"{VERSION}\"', c); open(p, 'w').write(c)"
+          export VERSION="${VERSION#v}"
+          python -c "import os, re; v = os.environ['VERSION']; p = 'pyproject.toml'; c = open(p).read(); c = re.sub(r'version = \".*\"', f'version = \"{v}\"', c); open(p, 'w').write(c)"
   
       - name: Build binary
         run: |
