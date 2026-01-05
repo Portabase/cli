@@ -73,3 +73,46 @@ jobs:
           make_latest: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Send Discord Notification
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          RELEASE_INFO=$(gh release view "${{ github.ref_name }}" --json name,url,body,author)
+          
+          RELEASE_TITLE=$(echo "$RELEASE_INFO" | jq -r .name)
+          if [ -z "$RELEASE_TITLE" ] || [ "$RELEASE_TITLE" = "null" ]; then RELEASE_TITLE="${{ github.ref_name }}"; fi
+          
+          RELEASE_URL=$(echo "$RELEASE_INFO" | jq -r .url)
+          RELEASE_BODY=$(echo "$RELEASE_INFO" | jq -r .body)
+          AUTHOR_NAME=$(echo "$RELEASE_INFO" | jq -r .author.login)
+          AUTHOR_ICON="https://github.com/${AUTHOR_NAME}.png"
+
+          PAYLOAD=$(jq -n \
+            --arg title "$RELEASE_TITLE" \
+            --arg description "$RELEASE_BODY" \
+            --arg url "$RELEASE_URL" \
+            --arg author "$AUTHOR_NAME" \
+            --arg icon "$AUTHOR_ICON" \
+            '{
+              content: "||@everyone|| New release published",
+              embeds: [{
+                title: $title,
+                url: $url,
+                description: $description,
+                color: 5814783,
+                author: {
+                  name: $author,
+                  icon_url: $icon
+                },
+                footer: {
+                  text: "Portabase"
+                }
+              }]
+            }'
+          )
+          
+          curl -H "Content-Type: application/json" \
+               -d "$PAYLOAD" \
+               "$DISCORD_WEBHOOK"
