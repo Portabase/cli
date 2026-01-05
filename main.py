@@ -2,7 +2,15 @@ import typer
 from typing import Optional
 from commands import agent, dashboard, common, db
 from core.utils import console
-from __init__ import __version__
+
+
+try:
+    import tomllib
+    from pathlib import Path
+    with open(Path(__file__).parent / "pyproject.toml", "rb") as f:
+        __version__ = tomllib.load(f)["project"]["version"]
+except (FileNotFoundError, KeyError, ImportError):
+    __version__ = "unknown"
 
 app = typer.Typer(no_args_is_help=True, add_completion=False)
 

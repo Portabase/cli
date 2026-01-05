@@ -38,12 +38,12 @@ jobs:
         shell: bash
         run: |
           VERSION="${{ github.ref_name }}"
-          echo "" >> __init__.py
-          echo "__version__ = \"$VERSION\"" >> __init__.py
+          VERSION="${VERSION#v}"
+          python -c "import re; p='pyproject.toml'; c=open(p).read(); c=re.sub(r'version = \".*\"', f'version = \"{VERSION}\"', c); open(p, 'w').write(c)"
   
       - name: Build binary
         run: |
-          uv run pyinstaller --onefile --name portabase_${{ matrix.os }}_${{ matrix.arch }} --paths=. main.py
+          uv run pyinstaller --onefile --name portabase_${{ matrix.os }}_${{ matrix.arch }} --paths=. --add-data "pyproject.toml:." main.py
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
