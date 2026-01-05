@@ -72,8 +72,28 @@ jobs:
           mode: "COMMIT"
           configurationJson: |
             {
-              "template": "# 📋 Changelog\n\n## 🚀 Changes\n#commits",
-              "commit_template": "- #TITLE ([#HASH](#URL))",
+              "template": "#{{CHANGELOG}}",
+              "categories": [
+                {
+                    "title": "## Feature",
+                    "labels": ["feat", "feature"]
+                },
+                {
+                    "title": "## Fix",
+                    "labels": ["fix", "bug"]
+                },
+                {
+                    "title": "## Other",
+                    "labels": []
+                }
+              ],
+              "label_extractor": [
+                {
+                  "pattern": "^(build|chore|ci|docs|feat|fix|perf|refactor|revert|style|test){1}(\\([\\w\\-\\.]+\\))?(!)?: ([\\w ])+([\\s\\S]*)",
+                  "on_property": "title",
+                  "target": "$1"
+                }
+              ]
             }
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -100,9 +120,9 @@ jobs:
           
           RELEASE_URL=$(echo "$RELEASE_INFO" | jq -r .url)
           RELEASE_BODY=$(echo "$RELEASE_INFO" | jq -r .body)
-          AUTHOR_NAME=$(echo "$RELEASE_INFO" | jq -r .author.login)
-          if [ -z "$AUTHOR_NAME" ] || [ "$AUTHOR_NAME" = "null" ]; then AUTHOR_NAME="Portabase"; fi
-          AUTHOR_ICON="https://github.com/${AUTHOR_NAME}.png"
+          
+          AUTHOR_NAME="Portabase"
+          AUTHOR_ICON="https://github.com/Portabase.png" 
 
           PAYLOAD=$(jq -n \
             --arg title "$RELEASE_TITLE" \
