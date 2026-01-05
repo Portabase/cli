@@ -1,0 +1,26 @@
+cff-version: 1.0.0
+title: Portabase CLI
+message: "If you use this software, please cite it as below."
+type: software
+authors:
+  - family-names: Gauthereau
+    given-names: Charles
+  - family-names: Larcher
+    given-names: Killian
+repository-code: https://github.com/Portabase/cli
+url: https://portabase.io
+abstract: "Portabase CLI is a command-line interface tool designed to streamline and enhance the management of Portabase services, providing developers with efficient access to core functionalities directly from the terminal."
+keywords:
+  - portabase
+  - cli
+  - command-line
+  - tool
+  - developer
+  - productivity
+  - automation
+  - database
+  - management
+  - integration
+license: Apache-2.0
+version: 0.0.0
+date-released: "2026-01-01"
