@@ -34,6 +34,13 @@ jobs:
       - name: Set up Python
         run: uv python install
 
+      - name: Inject Version
+        shell: bash
+        run: |
+          VERSION="${{ github.ref_name }}"
+          echo "" >> __init__.py
+          echo "__version__ = \"$VERSION\"" >> __init__.py
+  
       - name: Build binary
         run: |
           uv run pyinstaller --onefile --name portabase_${{ matrix.os }}_${{ matrix.arch }} --paths=. main.py
