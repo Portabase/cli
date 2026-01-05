@@ -1,13 +1,14 @@
 import typer
 from typing import Optional
 from commands import agent, dashboard, common, db
+from core.utils import console
 from __init__ import __version__
 
 app = typer.Typer(no_args_is_help=True, add_completion=False)
 
 def version_callback(value: bool):
     if value:
-        typer.echo(f"{__version__}")
+        console.print(f"Portabase CLI version: {__version__}")
         raise typer.Exit()
 
 @app.callback()
