@@ -7,7 +7,7 @@
 <h3 align="center">Portabase CLI</h3>
 
   <p align="center" style="margin-top: 20px; font-style: italic;">
-    The official command line interface (CLI) for managing and deploying Portabase instances with ease.
+    <i>The official command line interface (CLI) for managing and deploying Portabase instances with ease.</i>
   </p>
 
 
@@ -24,6 +24,8 @@
 
 
 ![Python][Python]
+![Typer][Typer]
+![Rich][Rich]
 
 
   <p>
@@ -46,6 +48,8 @@ You can install Portabase CLI using bash with the following command:
 curl -sSL https://portabase.io/install | bash
 ```
 
+- Development setup - [details](https://portabase.io/docs/cli#development-setup)
+
 For more installation options, please refer to the [official documentation](https://portabase.io/docs/cli).
 
 ## License
@@ -53,4 +57,10 @@ For more installation options, please refer to the [official documentation](http
 Distributed under the Apache License. See `LICENSE.txt` for more details.
 
 [Python]: https://img.shields.io/badge/python-3670A0?style=for-the-badge&logo=python&logoColor=ffdd54
+
+[Typer]: https://img.shields.io/badge/typer-FF5733?style=for-the-badge&logo=typer&logoColor=white
+
+[Rich]: https://img.shields.io/badge/rich-5E60CE?style=for-the-badge&logo=rich&logoColor=white
+
+
 
