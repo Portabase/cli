@@ -6,6 +6,8 @@ on:
       - '*.*.*a*'
       - '*.*.*b*'
       - '*.*.*rc*'
+      - '*.*.*alpha*'
+      - '*.*.*beta*'
 
 permissions:
   contents: write
