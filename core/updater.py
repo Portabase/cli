@@ -158,14 +158,36 @@ def update_cli():
         console.print(f"[info]Target installation path: {current_exe}[/info]")
 
         download_url = asset["browser_download_url"]
-        temp_file = Path(f"/tmp/portabase_update") if system != "windows" else Path(f"{current_exe}.new")
+        import tempfile
+        # Create a temporary file that won't have permission issues or conflicts
+        fd, temp_path = tempfile.mkstemp(prefix="portabase_update_")
+        temp_file = Path(temp_path)
+        os.close(fd)
         
-        with console.status(f"[bold magenta]Downloading {asset_name}...[/bold magenta]"):
-            response = requests.get(download_url, stream=True)
+        try:
+            response = requests.get(download_url, stream=True, timeout=15)
             response.raise_for_status()
-            with open(temp_file, "wb") as f:
-                for chunk in response.iter_content(chunk_size=8192):
-                    f.write(chunk)
+            total_size = int(response.headers.get('content-length', 0))
+            
+            from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, DownloadColumn, TransferSpeedColumn
+            
+            with Progress(
+                SpinnerColumn(),
+                TextColumn("[progress.description]{task.description}"),
+                BarColumn(),
+                DownloadColumn(),
+                TransferSpeedColumn(),
+                console=console
+            ) as progress:
+                task = progress.add_task(f"Downloading {asset_name}...", total=total_size)
+                with open(temp_file, "wb") as f:
+                    for chunk in response.iter_content(chunk_size=8192):
+                        if chunk:
+                            f.write(chunk)
+                            progress.update(task, advance=len(chunk))
+        except Exception as e:
+            if temp_file.exists(): temp_file.unlink()
+            raise e
         
         if system != "windows":
             temp_file.chmod(0o755)
