@@ -3,7 +3,7 @@ import os
 import uuid
 from pathlib import Path
 
-TEMPLATE_BASE_URL = "https://s3.eu-central-3.ionoscloud.com/portabase-software/cli/public/templates/"
+TEMPLATE_BASE_URL = "https://s3.eu-central-3.ionoscloud.com/portabase-software/cli/public/templates"
 GLOBAL_CONFIG_DIR = Path.home() / ".portabase"
 GLOBAL_CONFIG_FILE = GLOBAL_CONFIG_DIR / "config.json"
 

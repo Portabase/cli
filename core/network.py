@@ -13,7 +13,7 @@ def fetch_template(filename: str) -> str:
     try:
         with console.status(f"[dim]Fetching template from {url}...[/dim]"):
             response = requests.get(url, timeout=10)
-            if response.status_code == 404 and version != "unknown":
+            if response.status_code in [403, 404] and version != "unknown":
                 url = f"{TEMPLATE_BASE_URL}/latest/{filename}"
                 response = requests.get(url, timeout=10)
                 
