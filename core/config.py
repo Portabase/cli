@@ -3,7 +3,7 @@ import os
 import uuid
 from pathlib import Path
 
-TEMPLATE_BASE_URL = "https://portabase-cli.s3.fr-par.scw.cloud/templates/v1"
+TEMPLATE_BASE_URL = "https://s3.eu-central-3.ionoscloud.com/portabase-software/cli/public/templates/"
 
 def write_file(path: Path, content: str):
     path.parent.mkdir(parents=True, exist_ok=True)

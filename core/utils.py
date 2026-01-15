@@ -58,3 +58,19 @@ def validate_work_dir(path: Path):
         console.print(f"[danger]No Portabase configuration found in: {path}[/danger]")
         raise typer.Exit(1)
     return path
+
+def current_version() -> str: 
+
+    try:
+        import tomllib
+        import sys
+        from pathlib import Path
+        if getattr(sys, 'frozen', False):
+            base_path = Path(sys._MEIPASS)
+        else:
+            base_path = Path(__file__).parent.parent
+        with open(base_path / "pyproject.toml", "rb") as f:
+            __version__ = tomllib.load(f)["project"]["version"]
+    except (FileNotFoundError, KeyError, ImportError, AttributeError):
+        __version__ = "unknown"
+    return __version__

@@ -1,0 +1,165 @@
+import requests
+import subprocess
+import time
+import json
+import os
+import platform
+import sys
+import shutil
+import typer
+from pathlib import Path
+from core.utils import current_version, console
+
+GITHUB_REPO = "Portabase/cli"
+GITHUB_API_URL = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
+CACHE_FILE = Path.home() / ".portabase" / "update_cache.json"
+
+def get_platform_info():
+    system = platform.system().lower()
+    if system == "darwin":
+        system = "macos"
+    machine = platform.machine().lower()
+    
+    arch = "amd64"
+    if machine in ["arm64", "aarch64"]:
+        arch = "arm64"
+    elif machine in ["x86_64", "amd64"]:
+        arch = "amd64"
+    
+    return system, arch
+
+def get_latest_release_data():
+    try:
+        response = requests.get(GITHUB_API_URL, timeout=5)
+        response.raise_for_status()
+        return response.json()
+    except Exception:
+        return None
+
+def check_for_updates(force=False):
+    if not force and not getattr(sys, 'frozen', False) and platform.system().lower() != "windows":
+        return None
+
+    current = current_version()
+    latest_tag = None
+
+    try:
+        CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
+        if not force and CACHE_FILE.exists():
+            with open(CACHE_FILE, "r") as f:
+                cache = json.load(f)
+                if time.time() - cache.get("last_check", 0) < 86400:
+                    latest_tag = cache.get("latest_version")
+    except Exception:
+        pass
+
+    if latest_tag is None:
+        data = get_latest_release_data()
+        if data:
+            latest_tag = data.get("tag_name", "").lstrip('v')
+            try:
+                with open(CACHE_FILE, "w") as f:
+                    json.dump({"last_check": time.time(), "latest_version": latest_tag}, f)
+            except Exception:
+                pass
+
+    if not latest_tag or current == "unknown":
+        return None
+
+    if latest_tag != current:
+        console.print(f"\n[warning]⚠ A new version of Portabase CLI is available: [bold]{latest_tag}[/bold] (current: {current})[/warning]")
+        console.print("[info]Run [bold]portabase update[/bold] to update.[/info]\n")
+        return latest_tag
+    return None
+
+def update_cli():
+    if not getattr(sys, 'frozen', False) and platform.system().lower() != "windows":
+        console.print("[warning]⚠ The update command is only available for the binary version of Portabase CLI.[/warning]")
+        console.print("[info]If you installed via source, please use [bold]git pull[/bold] to update.[/info]")
+        return
+
+    data = get_latest_release_data()
+    if not data:
+        console.print("[danger]✖ Could not fetch latest release data from GitHub.[/danger]")
+        return
+
+    latest_tag = data.get("tag_name", "").lstrip('v')
+    current = current_version()
+    
+    if latest_tag == current:
+        console.print(f"[success]✔ Portabase CLI is already up to date ({current}).[/success]")
+        return
+
+    try:
+        if latest_tag < current and not (".rc" in current and not ".rc" in latest_tag):
+             console.print(f"[warning]⚠ Latest remote version ({latest_tag}) appears to be older than current ({current}).[/warning]")
+             if not typer.confirm("Do you want to continue with the update (downgrade)?"):
+                 return
+    except Exception:
+        pass
+
+    system, arch = get_platform_info()
+    asset_name = f"portabase_{system}_{arch}"
+    if system == "windows":
+        asset_name += ".exe"
+    
+    asset = next((a for a in data.get("assets", []) if a["name"] == asset_name), None)
+    
+    if not asset:
+        console.print(f"[danger]✖ Could not find binary for your platform ({system}/{arch}) in the latest release.[/danger]")
+        return
+
+    console.print(f"[info]Updating Portabase CLI from {current} to {latest_tag}...[/info]")
+    
+    try:
+        if system == "windows":
+            default_bin_path = Path(os.environ.get("APPDATA", "")) / "Portabase" / "portabase.exe"
+        else:
+            default_bin_path = Path("/usr/local/bin/portabase")
+
+        if getattr(sys, 'frozen', False):
+            current_exe = Path(sys.executable)
+        else:
+            if default_bin_path.exists():
+                current_exe = default_bin_path
+            else:
+                current_exe = Path.home() / ".local" / "bin" / ("portabase" if system != "windows" else "portabase.exe")
+        
+        console.print(f"[info]Target installation path: {current_exe}[/info]")
+
+        download_url = asset["browser_download_url"]
+        temp_file = Path(f"/tmp/portabase_update") if system != "windows" else Path(f"{current_exe}.new")
+        
+        with console.status(f"[bold magenta]Downloading {asset_name}...[/bold magenta]"):
+            response = requests.get(download_url, stream=True)
+            response.raise_for_status()
+            with open(temp_file, "wb") as f:
+                for chunk in response.iter_content(chunk_size=8192):
+                    f.write(chunk)
+        
+        if system != "windows":
+            temp_file.chmod(0o755)
+
+        if system == "windows":
+            if current_exe.exists():
+                old_exe = Path(f"{current_exe}.old")
+                if old_exe.exists(): old_exe.unlink()
+                current_exe.rename(old_exe)
+            temp_file.rename(current_exe)
+        else:
+            need_sudo = not os.access(current_exe.parent, os.W_OK) or (current_exe.exists() and not os.access(current_exe, os.W_OK))
+            
+            if need_sudo:
+                console.print("[info]Permissions required to install to /usr/local/bin. Using sudo...[/info]")
+                subprocess.run(["sudo", "mv", str(temp_file), str(current_exe)], check=True)
+                subprocess.run(["sudo", "chmod", "+x", str(current_exe)], check=True)
+            else:
+                current_exe.parent.mkdir(parents=True, exist_ok=True)
+                shutil.move(str(temp_file), str(current_exe))
+            
+        console.print(f"[success]✔ Successfully updated to {latest_tag}![/success]")
+            
+    except Exception as e:
+        console.print(f"[danger]✖ An error occurred during update: {e}[/danger]")
+        if 'temp_file' in locals() and temp_file.exists():
+            temp_file.unlink()
