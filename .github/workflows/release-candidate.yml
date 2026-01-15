@@ -1,15 +1,13 @@
-name: Publish Python binaries for release
+name: Publish Python binaries for release candidate
 
 on:
   push:
     tags:
-      - '*.*.*'
-      - '!*-*'
-      - '!*.*.*a*'
-      - '!*.*.*b*'
-      - '!*.*.*rc*'
-      - '!*.*.*alpha*'
-      - '!*.*.*beta*'
+      - '*.*.*a*'
+      - '*.*.*b*'
+      - '*.*.*rc*'
+      - '*.*.*alpha*'
+      - '*.*.*beta*'
 
 permissions:
   contents: write
@@ -24,10 +22,10 @@ jobs:
     uses: ./.github/workflows/github.yml
     with:
       artifact_name: "portabase_*"
-      prerelease: false
-      make_latest: true
-      discord_title: "||@release-cli|| New release published"
-      discord_color: 5814783
+      prerelease: true
+      make_latest: false
+      discord_title: "||@release-cli|| New release candidate published"
+      discord_color: 16776960
       discord_footer: "Portabase"
     secrets:
       DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}

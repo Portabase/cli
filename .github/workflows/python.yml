@@ -1,0 +1,41 @@
+name: Build Python Binaries
+
+on:
+  workflow_call:
+
+jobs:
+  build:
+    name: Build for ${{ matrix.os }} (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      matrix:
+        include:
+          - os: linux
+            arch: amd64
+            runner: ubuntu-latest
+          - os: macos
+            arch: arm64
+            runner: macos-latest
+          - os: macos
+            arch: amd64
+            runner: macos-15
+    
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+
+      - name: Set up Python
+        run: uv python install
+
+      - name: Build binary
+        run: |
+          uv run pyinstaller --onefile --name portabase_${{ matrix.os }}_${{ matrix.arch }} --paths=. --add-data "pyproject.toml:." main.py
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: portabase_${{ matrix.os }}_${{ matrix.arch }}
+          path: dist/portabase_${{ matrix.os }}_${{ matrix.arch }}
+
