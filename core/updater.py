@@ -9,10 +9,15 @@ import shutil
 import typer
 from pathlib import Path
 from core.utils import current_version, console
+from core.config import get_config_value
 
 GITHUB_REPO = "Portabase/cli"
-GITHUB_API_URL = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
+GITHUB_API_BASE_URL = f"https://api.github.com/repos/{GITHUB_REPO}/releases"
 CACHE_FILE = Path.home() / ".portabase" / "update_cache.json"
+
+def is_prerelease(version: str) -> bool:
+    v = version.lower()
+    return any(x in v for x in ['a', 'b', 'rc', 'alpha', 'beta'])
 
 def get_platform_info():
     system = platform.system().lower()
@@ -28,11 +33,17 @@ def get_platform_info():
     
     return system, arch
 
-def get_latest_release_data():
+def get_latest_release_data(pre=False):
     try:
-        response = requests.get(GITHUB_API_URL, timeout=5)
-        response.raise_for_status()
-        return response.json()
+        if not pre:
+            response = requests.get(f"{GITHUB_API_BASE_URL}/latest", timeout=5)
+            response.raise_for_status()
+            return response.json()
+        else:
+            response = requests.get(GITHUB_API_BASE_URL, timeout=5)
+            response.raise_for_status()
+            releases = response.json()
+            return releases[0] if releases else None
     except Exception:
         return None
 
@@ -41,6 +52,15 @@ def check_for_updates(force=False):
         return None
 
     current = current_version()
+    if current == "unknown":
+        return None
+    
+    channel = get_config_value("update_channel")
+    if channel:
+        include_pre = (channel == "beta")
+    else:
+        include_pre = is_prerelease(current)
+    
     latest_tag = None
 
     try:
@@ -54,7 +74,7 @@ def check_for_updates(force=False):
         pass
 
     if latest_tag is None:
-        data = get_latest_release_data()
+        data = get_latest_release_data(pre=include_pre)
         if data:
             latest_tag = data.get("tag_name", "").lstrip('v')
             try:
@@ -63,7 +83,7 @@ def check_for_updates(force=False):
             except Exception:
                 pass
 
-    if not latest_tag or current == "unknown":
+    if not latest_tag:
         return None
 
     if latest_tag != current:
@@ -78,20 +98,27 @@ def update_cli():
         console.print("[info]If you installed via source, please use [bold]git pull[/bold] to update.[/info]")
         return
 
-    data = get_latest_release_data()
+    current = current_version()
+    
+    channel = get_config_value("update_channel")
+    if channel:
+        pre = (channel == "beta")
+    else:
+        pre = is_prerelease(current) if current != "unknown" else False
+
+    data = get_latest_release_data(pre=pre)
     if not data:
         console.print("[danger]✖ Could not fetch latest release data from GitHub.[/danger]")
         return
 
     latest_tag = data.get("tag_name", "").lstrip('v')
-    current = current_version()
     
     if latest_tag == current:
         console.print(f"[success]✔ Portabase CLI is already up to date ({current}).[/success]")
         return
 
     try:
-        if latest_tag < current and not (".rc" in current and not ".rc" in latest_tag):
+        if latest_tag < current and not (is_prerelease(current) and not is_prerelease(latest_tag)):
              console.print(f"[warning]⚠ Latest remote version ({latest_tag}) appears to be older than current ({current}).[/warning]")
              if not typer.confirm("Do you want to continue with the update (downgrade)?"):
                  return
@@ -99,7 +126,7 @@ def update_cli():
         pass
 
     system, arch = get_platform_info()
-    asset_name = f"portabase_{system}_{arch}"
+    asset_name = f"portabase_{{system}}_{{arch}}"
     if system == "windows":
         asset_name += ".exe"
     

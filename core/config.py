@@ -4,6 +4,8 @@ import uuid
 from pathlib import Path
 
 TEMPLATE_BASE_URL = "https://s3.eu-central-3.ionoscloud.com/portabase-software/cli/public/templates/"
+GLOBAL_CONFIG_DIR = Path.home() / ".portabase"
+GLOBAL_CONFIG_FILE = GLOBAL_CONFIG_DIR / "config.json"
 
 def write_file(path: Path, content: str):
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -25,6 +27,29 @@ def write_env_file(work_dir: Path, env_vars: dict):
     for k, v in existing.items():
         content += f'{k}="{v}"\n'
     write_file(env_path, content)
+
+def load_global_config() -> dict:
+    if not GLOBAL_CONFIG_FILE.exists():
+        return {}
+    try:
+        with open(GLOBAL_CONFIG_FILE, "r") as f:
+            return json.load(f)
+    except:
+        return {}
+
+def save_global_config(config: dict):
+    GLOBAL_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    with open(GLOBAL_CONFIG_FILE, "w") as f:
+        json.dump(config, f, indent=2)
+
+def get_config_value(key: str, default=None):
+    config = load_global_config()
+    return config.get(key, default)
+
+def set_config_value(key: str, value):
+    config = load_global_config()
+    config[key] = value
+    save_global_config(config)
 
 def load_db_config(path: Path) -> dict:
     json_path = path / "databases.json"

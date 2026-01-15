@@ -1,6 +1,6 @@
 import typer
 from typing import Optional
-from commands import agent, dashboard, common, db
+from commands import agent, dashboard, common, db, config
 from core.utils import console, current_version
 from core.updater import check_for_updates, update_cli
 
@@ -39,6 +39,7 @@ app.command()(common.logs)
 app.command()(common.uninstall)
 
 app.add_typer(db.app, name="db")
+app.add_typer(config.app, name="config")
 
 if __name__ == "__main__":
     app()
