@@ -126,7 +126,7 @@ def update_cli():
         pass
 
     system, arch = get_platform_info()
-    asset_name = f"portabase_{{system}}_{{arch}}"
+    asset_name = f"portabase_{system}_{arch}"
     if system == "windows":
         asset_name += ".exe"
     
