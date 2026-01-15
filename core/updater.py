@@ -134,6 +134,9 @@ def update_cli():
     
     if not asset:
         console.print(f"[danger]✖ Could not find binary for your platform ({system}/{arch}) in the latest release.[/danger]")
+        available_assets = [a["name"] for a in data.get("assets", [])]
+        console.print(f"[info]Target asset name: {asset_name}[/info]")
+        console.print(f"[info]Available assets: {', '.join(available_assets)}[/info]")
         return
 
     console.print(f"[info]Updating Portabase CLI from {current} to {latest_tag}...[/info]")
