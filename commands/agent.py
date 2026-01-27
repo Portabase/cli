@@ -57,11 +57,11 @@ def agent(
     console.print(Panel("[bold]Database Setup[/bold]", style="cyan"))
 
     while Confirm.ask("Do you want to configure a database?", default=True):
-        mode = Prompt.ask("Configuration Mode", choices=["docker", "manual"], default="docker")
+        mode = Prompt.ask("Configuration Mode", choices=["new", "existing"], default="docker")
 
-        if mode == "manual":
+        if mode == "new":
             console.print("[info]External/Existing Database Configuration[/info]")
-            db_type = Prompt.ask("Type", choices=["postgresql", "mysql", "mariadb", "mongodb-auth", "mongodb"], default="postgresql")
+            db_type = Prompt.ask("Type", choices=["postgresql", "mysql", "mariadb", "mongodb"], default="postgresql")
             friendly_name = Prompt.ask("Display Name", default="External DB")
             db_name = Prompt.ask("Database Name")
             host = Prompt.ask("Host", default="localhost")
@@ -83,7 +83,7 @@ def agent(
 
         else:
             console.print("[info]New Local Docker Container[/info]")
-            db_engine = Prompt.ask("Engine", choices=["postgresql", "mariadb"], default="postgresql")
+            db_engine = Prompt.ask("Engine", choices=["postgresql", "mysql", "mariadb", "mongodb-auth", "mongodb"], default="postgresql")
 
             if db_engine == "postgresql":
                 pg_port = get_free_port()
@@ -121,7 +121,7 @@ def agent(
                 })
                 console.print(f"[success]✔ Added Postgres container (Port {pg_port})[/success]")
 
-            elif db_engine == "mariadb":
+            elif db_engine == "mariadb" or db_engine == "mysql":
                 mysql_port = get_free_port()
                 db_user = "admin"
                 db_pass = secrets.token_hex(8)
@@ -148,7 +148,7 @@ def agent(
                 add_db_to_json(path, {
                     "name": db_name,
                     "database": db_name,
-                    "type": "mysql",
+                    "type": db_engine,
                     "username": db_user,
                     "password": db_pass,
                     "port": mysql_port,

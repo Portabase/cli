@@ -75,8 +75,8 @@ def add_db_to_json(path: Path, db_entry: dict):
     if "databases" not in config:
         config["databases"] = []
     
-    if "generatedId" not in db_entry:
-        db_entry["generatedId"] = str(uuid.uuid4())
+    if "generated_id" not in db_entry:
+        db_entry["generated_id"] = str(uuid.uuid4())
         
     config["databases"].append(db_entry)
     save_db_config(path, config)
