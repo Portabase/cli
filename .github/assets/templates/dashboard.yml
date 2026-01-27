@@ -2,7 +2,7 @@ name: ${PROJECT_NAME}
 services:
     portabase:
         container_name: ${PROJECT_NAME}-app
-        image: solucetechnologies/portabase:latest
+        image: portabase/portabase:latest
         env_file:
             - .env
         ports:
