@@ -17,7 +17,6 @@ services:
 
 {{EXTRA_SERVICES}}
 
-volumes:
 {{EXTRA_VOLUMES}}
 
 networks:

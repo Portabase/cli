@@ -6,11 +6,9 @@ services:
         env_file:
             - .env
         ports:
-            - "${PORT}:3000"
+            - "${HOST_PORT}:80"
         environment:
             - TIME_ZONE=Europe/Paris
-            - HOSTNAME=0.0.0.0
-            - PORT=3000
         volumes:
             - portabase-private:/app/private
         depends_on:
@@ -27,8 +25,6 @@ services:
             - POSTGRES_DB=${POSTGRES_DB}
             - POSTGRES_USER=${POSTGRES_USER}
             - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
-            - PROJECT_NAME="Portabase"
-            - PROJECT_URL=${PROJECT_URL}
         healthcheck:
             test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
             interval: 10s
