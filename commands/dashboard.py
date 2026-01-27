@@ -32,7 +32,7 @@ def dashboard(
     pg_port = get_free_port()
     
     env_vars = {
-        "PORT": port,
+        "HOST_PORT": port,
         "POSTGRES_DB": "portabase",
         "POSTGRES_USER": "portabase",
         "POSTGRES_PASSWORD": secrets.token_hex(16),

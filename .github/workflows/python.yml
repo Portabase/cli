@@ -31,7 +31,17 @@ jobs:
 
       - name: Build binary
         run: |
-          uv run pyinstaller --onefile --name portabase_${{ matrix.os }}_${{ matrix.arch }} --paths=. --add-data "pyproject.toml:." main.py
+          rm -rf build dist *.spec
+          uv run pyinstaller \
+          --onefile \
+          --name portabase_${{ matrix.os }}_${{ matrix.arch }} \
+          --paths=. \
+          --collect-all rich \
+          --collect-all requests \
+          --collect-data certifi \
+          --add-data "pyproject.toml:." \
+          main.py
+
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
