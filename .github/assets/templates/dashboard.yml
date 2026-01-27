@@ -1,0 +1,39 @@
+name: ${PROJECT_NAME}
+services:
+    portabase:
+        container_name: ${PROJECT_NAME}-app
+        image: solucetechnologies/portabase:latest
+        env_file:
+            - .env
+        ports:
+            - "${PORT}:3000"
+        environment:
+            - TIME_ZONE=Europe/Paris
+            - HOSTNAME=0.0.0.0
+            - PORT=3000
+        volumes:
+            - portabase-private:/app/private
+        depends_on:
+            db:
+                condition: service_healthy
+    db:
+        container_name: ${PROJECT_NAME}-pg
+        image: postgres:17-alpine
+        ports:
+            - "${PG_PORT}:5432"
+        volumes:
+            - postgres-data:/var/lib/postgresql/data
+        environment:
+            - POSTGRES_DB=${POSTGRES_DB}
+            - POSTGRES_USER=${POSTGRES_USER}
+            - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+            - PROJECT_NAME="Portabase"
+            - PROJECT_URL=${PROJECT_URL}
+        healthcheck:
+            test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+            interval: 10s
+            timeout: 5s
+            retries: 5
+volumes:
+    postgres-data:
+    portabase-private:

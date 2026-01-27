@@ -1,26 +1,20 @@
 import typer
 from typing import Optional
-from commands import agent, dashboard, common, db
-from core.utils import console
-
-
-try:
-    import tomllib
-    from pathlib import Path
-    with open(Path(__file__).parent / "pyproject.toml", "rb") as f:
-        __version__ = tomllib.load(f)["project"]["version"]
-except (FileNotFoundError, KeyError, ImportError):
-    __version__ = "unknown"
+from commands import agent, dashboard, common, db, config
+from core.utils import console, current_version
+from core.updater import check_for_updates, update_cli
 
 app = typer.Typer(no_args_is_help=True, add_completion=False)
 
 def version_callback(value: bool):
     if value:
-        console.print(f"Portabase CLI version: {__version__}")
+        console.print(f"Portabase CLI version: {current_version()}")
+        check_for_updates(force=True)
         raise typer.Exit()
 
 @app.callback()
 def main(
+    ctx: typer.Context,
     version: Optional[bool] = typer.Option(
         None,
         "--version",
@@ -29,7 +23,12 @@ def main(
         is_eager=True,
     ),
 ):
-    pass
+    if ctx.invoked_subcommand != "update":
+        check_for_updates()
+
+@app.command()
+def update():
+    update_cli()
 
 app.command()(agent.agent)
 app.command()(dashboard.dashboard)
@@ -40,6 +39,7 @@ app.command()(common.logs)
 app.command()(common.uninstall)
 
 app.add_typer(db.app, name="db")
+app.add_typer(config.app, name="config")
 
 if __name__ == "__main__":
     app()
