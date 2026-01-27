@@ -57,9 +57,9 @@ def agent(
     console.print(Panel("[bold]Database Setup[/bold]", style="cyan"))
 
     while Confirm.ask("Do you want to configure a database?", default=True):
-        mode = Prompt.ask("Configuration Mode", choices=["new", "existing"], default="docker")
+        mode = Prompt.ask("Configuration Mode", choices=["new", "existing"], default="news")
 
-        if mode == "new":
+        if mode == "existing":
             console.print("[info]External/Existing Database Configuration[/info]")
             db_type = Prompt.ask("Type", choices=["postgresql", "mysql", "mariadb", "mongodb"], default="postgresql")
             friendly_name = Prompt.ask("Display Name", default="External DB")
