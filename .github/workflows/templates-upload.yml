@@ -1,0 +1,50 @@
+name: Upload Templates to S3
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        required: true
+        type: string
+      is_prerelease:
+        required: true
+        type: boolean
+    secrets:
+      S3_ENDPOINT:
+        required: true
+      S3_ACCESS_KEY:
+        required: true
+      S3_SECRET_KEY:
+        required: true
+      S3_BUCKET:
+        required: true
+
+jobs:
+  upload:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install S3cmd
+        run: sudo apt-get update && sudo apt-get install -y s3cmd
+
+      - name: Configure S3cmd
+        run: |
+          cat <<EOF > ~/.s3cfg
+          [default]
+          access_key = ${{ secrets.S3_ACCESS_KEY }}
+          secret_key = ${{ secrets.S3_SECRET_KEY }}
+          host_base = ${{ secrets.S3_ENDPOINT }}
+          host_bucket = %(bucket)s.${{ secrets.S3_ENDPOINT }}
+          use_https = True
+          EOF
+
+      - name: Upload Versioned Templates
+        run: |
+          CLEAN_VERSION=$(echo "${{ inputs.version }}" | sed 's/^v//')
+          s3cmd sync .github/assets/templates/ s3://${{ secrets.S3_BUCKET }}/cli/public/templates/$CLEAN_VERSION/ --acl-public
+
+      - name: Upload Latest Templates (Stable Only)
+        if: ${{ !inputs.is_prerelease }}
+        run: |
+          s3cmd sync .github/assets/templates/ s3://${{ secrets.S3_BUCKET }}/cli/public/templates/latest/ --acl-public

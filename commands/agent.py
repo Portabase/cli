@@ -76,7 +76,7 @@ def agent(
                 "password": password,
                 "port": port,
                 "host": host,
-                "generatedId": str(uuid.uuid4())
+                "generated_id": str(uuid.uuid4())
             })
             console.print("[success]✔ Added to config[/success]")
 
@@ -116,7 +116,7 @@ def agent(
                     "password": db_pass,
                     "port": pg_port,
                     "host": "localhost",
-                    "generatedId": str(uuid.uuid4())
+                    "generated_id": str(uuid.uuid4())
                 })
                 console.print(f"[success]✔ Added Postgres container (Port {pg_port})[/success]")
 
@@ -152,7 +152,7 @@ def agent(
                     "password": db_pass,
                     "port": mysql_port,
                     "host": "localhost",
-                    "generatedId": str(uuid.uuid4())
+                    "generated_id": str(uuid.uuid4())
                 })
                 console.print(f"[success]✔ Added MariaDB container (Port {mysql_port})[/success]")
 

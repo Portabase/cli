@@ -36,7 +36,7 @@ def list_dbs(name: str = typer.Argument(..., help="Name of the agent")):
             db.get("type", "N/A"),
             f"{db.get('host', 'N/A')}:{db.get('port', 'N/A')}",
             db.get("username", "N/A"),
-            db.get("generatedId", "")[:8] + "..."
+            db.get("generated_id", "")[:8] + "..."
         )
     console.print(table)
 
@@ -63,7 +63,7 @@ def add_db(name: str = typer.Argument(..., help="Name of the agent")):
         "password": password,
         "port": port,
         "host": host,
-        "generatedId": str(uuid.uuid4())
+        "generated_id": str(uuid.uuid4())
     }
     
     add_db_to_json(path, entry)
