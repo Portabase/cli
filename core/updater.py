@@ -119,8 +119,8 @@ def update_cli():
 
     try:
         if latest_tag < current and not (is_prerelease(current) and not is_prerelease(latest_tag)):
-             console.print(f"[warning]⚠ Latest remote version ({latest_tag}) appears to be older than current ({current}).[/warning]")
-             if not typer.confirm("Do you want to continue with the update (downgrade)?"):
+             console.print(f"[warning]⚠ Current version ({current}) appears to be older than the latest remote version ({latest_tag}).[/warning]")
+             if not typer.confirm("Do you want to continue with the update ?"):
                  return
     except Exception:
         pass
