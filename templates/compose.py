@@ -29,3 +29,33 @@ AGENT_MARIADB_SNIPPET = """
     volumes:
       - ${VOL_NAME}:/var/lib/mysql
 """
+
+AGENT_MONGODB_AUTH_SNIPPET = """
+  ${SERVICE_NAME}:
+    container_name: ${PROJECT_NAME}-${SERVICE_NAME}
+    image: mongo:latest
+    ports:
+      - "${PORT}:27017"
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=${USER}
+      - MONGO_INITDB_ROOT_PASSWORD=${PASSWORD}
+      - MONGO_INITDB_DATABASE=${DB_NAME}
+    command: mongod --auth
+    volumes:
+      - ${VOL_NAME}:/data/db
+"""
+
+AGENT_MONGODB_SNIPPET = """
+  ${SERVICE_NAME}:
+    container_name: ${PROJECT_NAME}-${SERVICE_NAME}
+    image: mongo:latest
+    ports:
+      - "${PORT}:27017"
+    environment:
+      - MONGO_INITDB_DATABASE=${DB_NAME}
+    volumes:
+      - ${VOL_NAME}:/data/db
+"""
+
+
+
