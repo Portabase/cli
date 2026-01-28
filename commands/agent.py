@@ -10,7 +10,8 @@ from core.utils import console, print_banner, check_system, get_free_port
 from core.config import write_file, write_env_file, add_db_to_json
 from core.docker import ensure_network, run_compose
 from core.network import fetch_template
-from templates.compose import AGENT_POSTGRES_SNIPPET, AGENT_MARIADB_SNIPPET
+from templates.compose import AGENT_POSTGRES_SNIPPET, AGENT_MARIADB_SNIPPET, AGENT_MONGODB_AUTH_SNIPPET, \
+    AGENT_MONGODB_SNIPPET
 
 
 def agent(
@@ -57,7 +58,7 @@ def agent(
     console.print(Panel("[bold]Database Setup[/bold]", style="cyan"))
 
     while Confirm.ask("Do you want to configure a database?", default=True):
-        mode = Prompt.ask("Configuration Mode", choices=["new", "existing"], default="news")
+        mode = Prompt.ask("Configuration Mode", choices=["new", "existing"], default="new")
 
         if mode == "existing":
             console.print("[info]External/Existing Database Configuration[/info]")
@@ -170,7 +171,7 @@ def agent(
                 env_vars[f"{var_prefix}_USER"] = db_user
                 env_vars[f"{var_prefix}_PASS"] = db_pass
 
-                snippet = AGENT_MARIADB_SNIPPET \
+                snippet = AGENT_MONGODB_AUTH_SNIPPET \
                     .replace("${SERVICE_NAME}", service_name) \
                     .replace("${PORT}", f"${{{var_prefix}_PORT}}") \
                     .replace("${VOL_NAME}", f"{service_name}-data") \
@@ -203,7 +204,7 @@ def agent(
                 env_vars[f"{var_prefix}_PORT"] = str(mongo_port)
                 env_vars[f"{var_prefix}_DB"] = db_name
 
-                snippet = AGENT_MARIADB_SNIPPET \
+                snippet = AGENT_MONGODB_SNIPPET \
                     .replace("${SERVICE_NAME}", service_name) \
                     .replace("${PORT}", f"${{{var_prefix}_PORT}}") \
                     .replace("${VOL_NAME}", f"{service_name}-data") \
