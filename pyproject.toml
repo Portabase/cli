@@ -1,6 +1,6 @@
 [project]
 name = "portabase-cli"
-version = "26.02.1"
+version = "26.02.2"
 description = "The official command line interface (CLI) for managing and deploying Portabase instances with ease."
 readme = "README.md"
 requires-python = ">=3.12"
