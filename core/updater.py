@@ -203,15 +203,28 @@ def update_cli():
             
             if need_sudo:
                 console.print("[info]Permissions required to install to /usr/local/bin. Using sudo...[/info]")
+                if current_exe.exists():
+                    subprocess.run(["sudo", "mv", str(current_exe), f"{current_exe}.old"], check=False)
                 subprocess.run(["sudo", "mv", str(temp_file), str(current_exe)], check=True)
                 subprocess.run(["sudo", "chmod", "+x", str(current_exe)], check=True)
             else:
+                if current_exe.exists():
+                    old_exe = Path(f"{current_exe}.old")
+                    if old_exe.exists(): old_exe.unlink()
+                    current_exe.rename(old_exe)
                 current_exe.parent.mkdir(parents=True, exist_ok=True)
                 shutil.move(str(temp_file), str(current_exe))
             
-        console.print(f"[success]✔ Successfully updated to {latest_tag}![/success]")
+        try:
+            console.print(f"[success]✔ Successfully updated to {latest_tag}![/success]")
+        except Exception:
+            # Fallback to plain print if rich/PyInstaller fails to load modules after update
+            print(f"Successfully updated to {latest_tag}!")
             
     except Exception as e:
-        console.print(f"[danger]✖ An error occurred during update: {e}[/danger]")
+        try:
+            console.print(f"[danger]✖ An error occurred during update: {e}[/danger]")
+        except Exception:
+            print(f"An error occurred during update: {e}")
         if 'temp_file' in locals() and temp_file.exists():
             temp_file.unlink()
