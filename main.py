@@ -1,16 +1,20 @@
-import typer
 from typing import Optional
-from commands import agent, dashboard, common, db, config
-from core.utils import console, current_version
+
+import typer
+
+from commands import agent, common, config, dashboard, db
 from core.updater import check_for_updates, update_cli
+from core.utils import console, current_version
 
 app = typer.Typer(no_args_is_help=True, add_completion=False)
+
 
 def version_callback(value: bool):
     if value:
         console.print(f"Portabase CLI version: {current_version()}")
         check_for_updates(force=True)
         raise typer.Exit()
+
 
 @app.callback()
 def main(
@@ -26,9 +30,11 @@ def main(
     if ctx.invoked_subcommand != "update":
         check_for_updates()
 
+
 @app.command()
 def update():
     update_cli()
+
 
 app.command()(agent.agent)
 app.command()(dashboard.dashboard)
