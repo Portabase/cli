@@ -1,23 +1,28 @@
 import typer
 import secrets
 import uuid
-import os
 from pathlib import Path
 from typing import Optional
+
+import typer
 from rich.panel import Panel
-from rich.prompt import Prompt, Confirm, IntPrompt
-from core.utils import console, print_banner, check_system, get_free_port
-from core.config import write_file, write_env_file, add_db_to_json
+from rich.prompt import Confirm, IntPrompt, Prompt
+
+from core.config import add_db_to_json, write_env_file, write_file
 from core.docker import ensure_network, run_compose
 from core.network import fetch_template
-from templates.compose import AGENT_POSTGRES_SNIPPET, AGENT_MARIADB_SNIPPET, AGENT_MONGODB_AUTH_SNIPPET, \
-    AGENT_MONGODB_SNIPPET
+from core.utils import check_system, console, get_free_port, print_banner
+from templates.compose import AGENT_MARIADB_SNIPPET, AGENT_POSTGRES_SNIPPET
 
 
 def agent(
-        name: str = typer.Argument(..., help="Name of the agent (creates a folder)"),
-        key: Optional[str] = typer.Option(None, "--key", "-k", help="Edge Key"),
-        start: bool = typer.Option(False, "--start", "-s", help="Start immediately")
+    name: str = typer.Argument(..., help="Name of the agent (creates a folder)"),
+    key: Optional[str] = typer.Option(None, "--key", "-k", help="Edge Key"),
+    tz: str = typer.Option("UTC", "--tz", help="Timezone"),
+    polling: int = typer.Option(5, "--polling", help="Polling frequency in seconds"),
+    env: str = typer.Option("production", "--env", help="Application environment"),
+    data_path: str = typer.Option("/data", "--data-path", help="Internal data path"),
+    start: bool = typer.Option(False, "--start", "-s", help="Start immediately"),
 ):
     print_banner()
     check_system()
@@ -35,11 +40,31 @@ def agent(
     if not key:
         key = Prompt.ask("[key]Edge Key[/key]")
 
+    if not tz or tz == "UTC":
+        tz = Prompt.ask("Timezone", default="UTC")
+
+    if polling == 5:
+        polling = IntPrompt.ask("Polling frequency (seconds)", default=5)
+
+    if env == "production":
+        env = Prompt.ask(
+            "Environment",
+            choices=["production", "staging", "development"],
+            default="production",
+        )
+
+    if data_path == "/data":
+        data_path = Prompt.ask("Internal Data Path", default="/data")
+
     raw_template = fetch_template("agent.yml")
 
     env_vars = {
         "EDGE_KEY": key,
-        "PROJECT_NAME": project_name
+        "PROJECT_NAME": project_name,
+        "TZ": tz,
+        "POLLING": str(polling),
+        # "APP_ENV": env,
+        # "DATA_PATH": data_path
     }
 
     extra_services = ""
@@ -58,33 +83,48 @@ def agent(
     console.print(Panel("[bold]Database Setup[/bold]", style="cyan"))
 
     while Confirm.ask("Do you want to configure a database?", default=True):
-        mode = Prompt.ask("Configuration Mode", choices=["new", "existing"], default="new")
+        mode = Prompt.ask(
+            "Configuration Mode", choices=["new", "existing"], default="news"
+        )
 
         if mode == "existing":
             console.print("[info]External/Existing Database Configuration[/info]")
-            db_type = Prompt.ask("Type", choices=["postgresql", "mysql", "mariadb", "mongodb"], default="postgresql")
+            db_type = Prompt.ask(
+                "Type",
+                choices=["postgresql", "mysql", "mariadb", "mongodb"],
+                default="postgresql",
+            )
             friendly_name = Prompt.ask("Display Name", default="External DB")
             db_name = Prompt.ask("Database Name")
             host = Prompt.ask("Host", default="localhost")
-            port = IntPrompt.ask("Port", default=5432 if db_type == "postgresql" else 3306)
+            port = IntPrompt.ask(
+                "Port", default=5432 if db_type == "postgresql" else 3306
+            )
             user = Prompt.ask("Username")
             password = Prompt.ask("Password", password=True)
 
-            add_db_to_json(path, {
-                "name": friendly_name,
-                "database": db_name,
-                "type": db_type,
-                "username": user,
-                "password": password,
-                "port": port,
-                "host": host,
-                "generated_id": str(uuid.uuid4())
-            })
+            add_db_to_json(
+                path,
+                {
+                    "name": friendly_name,
+                    "database": db_name,
+                    "type": db_type,
+                    "username": user,
+                    "password": password,
+                    "port": port,
+                    "host": host,
+                    "generated_id": str(uuid.uuid4()),
+                },
+            )
             console.print("[success]✔ Added to config[/success]")
 
         else:
             console.print("[info]New Local Docker Container[/info]")
-            db_engine = Prompt.ask("Engine", choices=["postgresql", "mysql", "mariadb", "mongodb-auth", "mongodb"], default="postgresql")
+            db_engine = Prompt.ask(
+                "Engine",
+                choices=["postgresql", "mysql", "mariadb", "mongodb-auth", "mongodb"],
+                default="postgresql",
+            )
 
             if db_engine == "postgresql":
                 pg_port = get_free_port()
@@ -99,28 +139,34 @@ def agent(
                 env_vars[f"{var_prefix}_USER"] = db_user
                 env_vars[f"{var_prefix}_PASS"] = db_pass
 
-                snippet = AGENT_POSTGRES_SNIPPET \
-                    .replace("${SERVICE_NAME}", service_name) \
-                    .replace("${PORT}", f"${{{var_prefix}_PORT}}") \
-                    .replace("${VOL_NAME}", f"{service_name}-data") \
-                    .replace("${DB_NAME}", f"${{{var_prefix}_DB}}") \
-                    .replace("${USER}", f"${{{var_prefix}_USER}}") \
+                snippet = (
+                    AGENT_POSTGRES_SNIPPET.replace("${SERVICE_NAME}", service_name)
+                    .replace("${PORT}", f"${{{var_prefix}_PORT}}")
+                    .replace("${VOL_NAME}", f"{service_name}-data")
+                    .replace("${DB_NAME}", f"${{{var_prefix}_DB}}")
+                    .replace("${USER}", f"${{{var_prefix}_USER}}")
                     .replace("${PASSWORD}", f"${{{var_prefix}_PASS}}")
+                )
 
                 extra_services += snippet
                 volumes_list.append(f"{service_name}-data")
 
-                add_db_to_json(path, {
-                    "name": db_name,
-                    "database": db_name,
-                    "type": "postgresql",
-                    "username": db_user,
-                    "password": db_pass,
-                    "port": pg_port,
-                    "host": "localhost",
-                    "generated_id": str(uuid.uuid4())
-                })
-                console.print(f"[success]✔ Added Postgres container (Port {pg_port})[/success]")
+                add_db_to_json(
+                    path,
+                    {
+                        "name": db_name,
+                        "database": db_name,
+                        "type": "postgresql",
+                        "username": db_user,
+                        "password": db_pass,
+                        "port": pg_port,
+                        "host": "localhost",
+                        "generated_id": str(uuid.uuid4()),
+                    },
+                )
+                console.print(
+                    f"[success]✔ Added Postgres container (Port {pg_port})[/success]"
+                )
 
             elif db_engine == "mariadb" or db_engine == "mysql":
                 mysql_port = get_free_port()
@@ -135,28 +181,34 @@ def agent(
                 env_vars[f"{var_prefix}_USER"] = db_user
                 env_vars[f"{var_prefix}_PASS"] = db_pass
 
-                snippet = AGENT_MARIADB_SNIPPET \
-                    .replace("${SERVICE_NAME}", service_name) \
-                    .replace("${PORT}", f"${{{var_prefix}_PORT}}") \
-                    .replace("${VOL_NAME}", f"{service_name}-data") \
-                    .replace("${DB_NAME}", f"${{{var_prefix}_DB}}") \
-                    .replace("${USER}", f"${{{var_prefix}_USER}}") \
+                snippet = (
+                    AGENT_MARIADB_SNIPPET.replace("${SERVICE_NAME}", service_name)
+                    .replace("${PORT}", f"${{{var_prefix}_PORT}}")
+                    .replace("${VOL_NAME}", f"{service_name}-data")
+                    .replace("${DB_NAME}", f"${{{var_prefix}_DB}}")
+                    .replace("${USER}", f"${{{var_prefix}_USER}}")
                     .replace("${PASSWORD}", f"${{{var_prefix}_PASS}}")
+                )
 
                 extra_services += snippet
                 volumes_list.append(f"{service_name}-data")
 
-                add_db_to_json(path, {
-                    "name": db_name,
-                    "database": db_name,
-                    "type": db_engine,
-                    "username": db_user,
-                    "password": db_pass,
-                    "port": mysql_port,
-                    "host": "localhost",
-                    "generated_id": str(uuid.uuid4())
-                })
-                console.print(f"[success]✔ Added MariaDB container (Port {mysql_port})[/success]")
+                add_db_to_json(
+                    path,
+                    {
+                        "name": db_name,
+                        "database": db_name,
+                        "type": db_engine,
+                        "username": db_user,
+                        "password": db_pass,
+                        "port": mysql_port,
+                        "host": "localhost",
+                        "generated_id": str(uuid.uuid4()),
+                    },
+                )
+                console.print(
+                    f"[success]✔ Added MariaDB container (Port {mysql_port})[/success]"
+                )
 
             elif db_engine == "mongodb-auth":
                 mongo_port = get_free_port()
@@ -171,29 +223,34 @@ def agent(
                 env_vars[f"{var_prefix}_USER"] = db_user
                 env_vars[f"{var_prefix}_PASS"] = db_pass
 
-                snippet = AGENT_MONGODB_AUTH_SNIPPET \
-                    .replace("${SERVICE_NAME}", service_name) \
-                    .replace("${PORT}", f"${{{var_prefix}_PORT}}") \
-                    .replace("${VOL_NAME}", f"{service_name}-data") \
-                    .replace("${DB_NAME}", f"${{{var_prefix}_DB}}") \
-                    .replace("${USER}", f"${{{var_prefix}_USER}}") \
+                snippet = (
+                    AGENT_MARIADB_SNIPPET.replace("${SERVICE_NAME}", service_name)
+                    .replace("${PORT}", f"${{{var_prefix}_PORT}}")
+                    .replace("${VOL_NAME}", f"{service_name}-data")
+                    .replace("${DB_NAME}", f"${{{var_prefix}_DB}}")
+                    .replace("${USER}", f"${{{var_prefix}_USER}}")
                     .replace("${PASSWORD}", f"${{{var_prefix}_PASS}}")
+                )
 
                 extra_services += snippet
                 volumes_list.append(f"{service_name}-data")
 
-                add_db_to_json(path, {
-                    "name": db_name,
-                    "database": db_name,
-                    "type": "mongodb",
-                    "username": db_user,
-                    "password": db_pass,
-                    "port": mongo_port,
-                    "host": "localhost",
-                    "generated_id": str(uuid.uuid4())
-                })
-                console.print(f"[success]✔ Added MongoDB Auth container (Port {mongo_port})[/success]")
-
+                add_db_to_json(
+                    path,
+                    {
+                        "name": db_name,
+                        "database": db_name,
+                        "type": "mongodb",
+                        "username": db_user,
+                        "password": db_pass,
+                        "port": mongo_port,
+                        "host": "localhost",
+                        "generated_id": str(uuid.uuid4()),
+                    },
+                )
+                console.print(
+                    f"[success]✔ Added MongoDB Auth container (Port {mongo_port})[/success]"
+                )
 
             elif db_engine == "mongodb":
                 mongo_port = get_free_port()
@@ -204,28 +261,31 @@ def agent(
                 env_vars[f"{var_prefix}_PORT"] = str(mongo_port)
                 env_vars[f"{var_prefix}_DB"] = db_name
 
-                snippet = AGENT_MONGODB_SNIPPET \
-                    .replace("${SERVICE_NAME}", service_name) \
-                    .replace("${PORT}", f"${{{var_prefix}_PORT}}") \
-                    .replace("${VOL_NAME}", f"{service_name}-data") \
-                    .replace("${DB_NAME}", f"${{{var_prefix}_DB}}") \
-
+                snippet = (
+                    AGENT_MARIADB_SNIPPET.replace("${SERVICE_NAME}", service_name)
+                    .replace("${PORT}", f"${{{var_prefix}_PORT}}")
+                    .replace("${VOL_NAME}", f"{service_name}-data")
+                    .replace("${DB_NAME}", f"${{{var_prefix}_DB}}")
+                )
                 extra_services += snippet
                 volumes_list.append(f"{service_name}-data")
 
-                add_db_to_json(path, {
-                    "name": db_name,
-                    "database": db_name,
-                    "type": "mongodb",
-                    "username": "",
-                    "password": "",
-                    "port": mongo_port,
-                    "host": "localhost",
-                    "generated_id": str(uuid.uuid4())
-                })
-                console.print(f"[success]✔ Added MongoDB container (Port {mongo_port})[/success]")
-
-
+                add_db_to_json(
+                    path,
+                    {
+                        "name": db_name,
+                        "database": db_name,
+                        "type": "mongodb",
+                        "username": "",
+                        "password": "",
+                        "port": mongo_port,
+                        "host": "localhost",
+                        "generated_id": str(uuid.uuid4()),
+                    },
+                )
+                console.print(
+                    f"[success]✔ Added MongoDB container (Port {mongo_port})[/success]"
+                )
 
     if volumes_list:
         for vol in volumes_list:
@@ -239,10 +299,14 @@ def agent(
     write_file(path / "docker-compose.yml", final_compose)
     write_env_file(path, env_vars)
 
-    console.print(Panel(f"[bold white]AGENT READY: {name}[/bold white]", style="bold #5f00d7"))
+    console.print(
+        Panel(f"[bold white]AGENT READY: {name}[/bold white]", style="bold #5f00d7")
+    )
 
     if start or Confirm.ask("Start agent now?", default=False):
-        with console.status("[bold magenta]Starting...[/bold magenta]", spinner="earth"):
+        with console.status(
+            "[bold magenta]Starting...[/bold magenta]", spinner="earth"
+        ):
             run_compose(path, ["up", "-d"])
         console.print(f"[bold green]✔ Agent {name} is running[/bold green]")
     else:
