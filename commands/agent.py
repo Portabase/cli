@@ -5,12 +5,17 @@ from pathlib import Path
 from typing import Optional
 
 import typer
+import yaml
 from rich.panel import Panel
 from rich.prompt import Confirm, IntPrompt, Prompt
 from rich.table import Table
 
 from core.config import add_db_to_json, load_db_config, write_env_file, write_file
-from core.docker import ensure_network, run_compose, update_compose_file
+from core.docker import (
+    create_compose_file,
+    ensure_network,
+    run_compose,
+)
 from core.network import fetch_template
 from core.utils import (
     check_system,
@@ -37,8 +42,6 @@ def agent(
     key: Optional[str] = typer.Option(None, "--key", "-k", help="Edge Key"),
     tz: str = typer.Option("UTC", "--tz", help="Timezone"),
     polling: int = typer.Option(5, "--polling", help="Polling frequency in seconds"),
-    env: str = typer.Option("production", "--env", help="Application environment"),
-    data_path: str = typer.Option("/data", "--data-path", help="Internal data path"),
     start: bool = typer.Option(False, "--start", "-s", help="Start immediately"),
 ):
     print_banner()
@@ -69,31 +72,19 @@ def agent(
     if polling == 5:
         polling = IntPrompt.ask("Polling frequency (seconds)", default=5)
 
-    if env == "production":
-        env = Prompt.ask(
-            "Environment",
-            choices=["production", "staging", "development"],
-            default="production",
-        )
-
-    if data_path == "/data":
-        data_path = Prompt.ask("Internal Data Path", default="/data")
-
-    raw_template = fetch_template("agent.yml")
-
     env_vars = {
         "EDGE_KEY": key,
         "PROJECT_NAME": project_name,
         "TZ": tz,
         "POLLING": str(polling),
-        "APP_ENV": env,
-        "DATA_PATH": data_path,
     }
 
-    extra_services = ""
-    extra_volumes = "volumes:\n"
+    raw_template = fetch_template("agent.yml")
+    raw_template = raw_template.replace("${PROJECT_NAME}", project_name)
+
+    services_to_add = {}
+    volumes_to_add = []
     app_volumes = ["./databases.json:/config/config.json"]
-    volumes_list = []
 
     json_path = path / "databases.json"
     if not json_path.exists():
@@ -110,6 +101,24 @@ def agent(
         mode = Prompt.ask(
             "Configuration Mode", choices=["new", "existing"], default="new"
         )
+
+        table = Table(
+            title="Supported Databases", show_header=True, header_style="bold magenta"
+        )
+        table.add_column("Type", style="cyan")
+        table.add_column("Engine", style="green")
+        table.add_column("Description", style="dim")
+
+        table.add_row("SQL", "postgresql", "PostgreSQL Database")
+        table.add_row("SQL", "mysql", "MySQL Database")
+        table.add_row("SQL", "mariadb", "MariaDB Database")
+        table.add_row("SQL", "sqlite", "SQLite Database")
+        table.add_row("", "", "")
+        table.add_row("NoSQL", "mongodb", "MongoDB NoSQL")
+        table.add_row("NoSQL", "redis", "Redis Key-Value Store")
+        table.add_row("NoSQL", "valkey", "Valkey Key-Value Store")
+
+        console.print(table)
 
         if mode == "existing":
             console.print("[info]External/Existing Database Configuration[/info]")
@@ -241,8 +250,13 @@ def agent(
                     .replace("${PASSWORD}", f"${{{var_prefix}_PASS}}")
                 )
 
-                extra_services += snippet
-                volumes_list.append(f"{service_name}-data")
+                snippet_data = yaml.safe_load(snippet)
+                services_to_add.update(
+                    snippet_data.get("services", snippet_data)
+                    if isinstance(snippet_data, dict)
+                    else snippet_data
+                )
+                volumes_to_add.append(f"{service_name}-data")
 
                 add_db_to_json(
                     path,
@@ -283,8 +297,13 @@ def agent(
                     .replace("${PASSWORD}", f"${{{var_prefix}_PASS}}")
                 )
 
-                extra_services += snippet
-                volumes_list.append(f"{service_name}-data")
+                snippet_data = yaml.safe_load(snippet)
+                services_to_add.update(
+                    snippet_data.get("services", snippet_data)
+                    if isinstance(snippet_data, dict)
+                    else snippet_data
+                )
+                volumes_to_add.append(f"{service_name}-data")
 
                 add_db_to_json(
                     path,
@@ -328,8 +347,13 @@ def agent(
                         .replace("${PASSWORD}", f"${{{var_prefix}_PASS}}")
                     )
 
-                    extra_services += snippet
-                    volumes_list.append(f"{service_name}-data")
+                    snippet_data = yaml.safe_load(snippet)
+                    services_to_add.update(
+                        snippet_data.get("services", snippet_data)
+                        if isinstance(snippet_data, dict)
+                        else snippet_data
+                    )
+                    volumes_to_add.append(f"{service_name}-data")
 
                     add_db_to_json(
                         path,
@@ -362,8 +386,14 @@ def agent(
                         .replace("${VOL_NAME}", f"{service_name}-data")
                         .replace("${DB_NAME}", f"${{{var_prefix}_DB}}")
                     )
-                    extra_services += snippet
-                    volumes_list.append(f"{service_name}-data")
+
+                    snippet_data = yaml.safe_load(snippet)
+                    services_to_add.update(
+                        snippet_data.get("services", snippet_data)
+                        if isinstance(snippet_data, dict)
+                        else snippet_data
+                    )
+                    volumes_to_add.append(f"{service_name}-data")
 
                     add_db_to_json(
                         path,
@@ -396,8 +426,13 @@ def agent(
                     .replace("${VOL_NAME}", f"{service_name}-data")
                 )
 
-                extra_services += snippet
-                volumes_list.append(f"{service_name}-data")
+                snippet_data = yaml.safe_load(snippet)
+                services_to_add.update(
+                    snippet_data.get("services", snippet_data)
+                    if isinstance(snippet_data, dict)
+                    else snippet_data
+                )
+                volumes_to_add.append(f"{service_name}-data")
 
                 add_db_to_json(
                     path,
@@ -433,8 +468,13 @@ def agent(
                     .replace("${PASSWORD}", f"${{{var_prefix}_PASS}}")
                 )
 
-                extra_services += snippet
-                volumes_list.append(f"{service_name}-data")
+                snippet_data = yaml.safe_load(snippet)
+                services_to_add.update(
+                    snippet_data.get("services", snippet_data)
+                    if isinstance(snippet_data, dict)
+                    else snippet_data
+                )
+                volumes_to_add.append(f"{service_name}-data")
 
                 add_db_to_json(
                     path,
@@ -467,8 +507,13 @@ def agent(
                     .replace("${VOL_NAME}", f"{service_name}-data")
                 )
 
-                extra_services += snippet
-                volumes_list.append(f"{service_name}-data")
+                snippet_data = yaml.safe_load(snippet)
+                services_to_add.update(
+                    snippet_data.get("services", snippet_data)
+                    if isinstance(snippet_data, dict)
+                    else snippet_data
+                )
+                volumes_to_add.append(f"{service_name}-data")
 
                 add_db_to_json(
                     path,
@@ -504,8 +549,13 @@ def agent(
                     .replace("${PASSWORD}", f"${{{var_prefix}_PASS}}")
                 )
 
-                extra_services += snippet
-                volumes_list.append(f"{service_name}-data")
+                snippet_data = yaml.safe_load(snippet)
+                services_to_add.update(
+                    snippet_data.get("services", snippet_data)
+                    if isinstance(snippet_data, dict)
+                    else snippet_data
+                )
+                volumes_to_add.append(f"{service_name}-data")
 
                 add_db_to_json(
                     path,
@@ -524,19 +574,6 @@ def agent(
                     f"[success]✔ Added Valkey Auth container (Port {valkey_port})[/success]"
                 )
 
-    if volumes_list:
-        for vol in volumes_list:
-            extra_volumes += f"  {vol}:\n"
-
-    final_compose = raw_template.replace("{{EXTRA_SERVICES}}", extra_services)
-    final_compose = final_compose.replace("{{EXTRA_VOLUMES}}", extra_volumes)
-    final_compose = final_compose.replace("${PROJECT_NAME}", project_name)
-
-    vols_str = "\n".join([f"      - {v}" for v in app_volumes])
-    final_compose = final_compose.replace(
-        "      - ./databases.json:/config/config.json", vols_str
-    )
-
     summary = Table(show_header=False, box=None, padding=(0, 2))
     summary.add_column("Property", style="bold cyan")
     summary.add_column("Value", style="white")
@@ -547,7 +584,6 @@ def agent(
     summary.add_row("Edge Key", f"{key[:10]}...{key[-10:]}" if len(key) > 20 else key)
     summary.add_row("Timezone", tz)
     summary.add_row("Polling", f"{polling}s")
-    summary.add_row("Environment", env)
 
     db_config = load_db_config(path)
     dbs = db_config.get("databases", [])
@@ -586,7 +622,14 @@ def agent(
         console.print("[warning]Configuration cancelled.[/warning]")
         raise typer.Exit()
 
-    write_file(path / "docker-compose.yml", final_compose)
+    create_compose_file(
+        path=path,
+        base_template_content=raw_template,
+        extra_services=services_to_add,
+        named_volumes=volumes_to_add,
+        app_volumes=app_volumes,
+    )
+
     write_env_file(path, env_vars)
 
     console.print(

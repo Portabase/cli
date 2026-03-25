@@ -1,7 +1,9 @@
 import subprocess
 from pathlib import Path
+from typing import Dict, List, Optional
 
 import typer
+import yaml
 
 from core.utils import console
 
@@ -35,51 +37,73 @@ def update_compose_file(path: Path, service_snippet: str, volume_name: str = Non
     if not compose_path.exists():
         return
 
-    import re
+    try:
+        with open(compose_path, "r") as f:
+            data = yaml.safe_load(f) or {}
 
-    with open(compose_path, "r") as f:
-        content = f.read()
+        snippet_data = yaml.safe_load(service_snippet)
 
-    def find_top_level(text, key):
-        match = re.search(rf"^{key}:", text, re.MULTILINE)
-        return match.start() if match else -1
+        if "services" not in data or data["services"] is None:
+            data["services"] = {}
 
-    networks_pos = find_top_level(content, "networks")
-    volumes_pos = find_top_level(content, "volumes")
+        data["services"].update(snippet_data)
 
-    insert_pos = networks_pos if networks_pos != -1 else volumes_pos
-    if insert_pos == -1:
-        insert_pos = len(content)
+        if volume_name:
+            if "volumes" not in data or data["volumes"] is None:
+                data["volumes"] = {}
 
-    new_content = (
-        content[:insert_pos].rstrip()
-        + "\n"
-        + service_snippet
-        + "\n"
-        + content[insert_pos:]
-    )
+            if volume_name not in data["volumes"]:
+                data["volumes"][volume_name] = {}
 
-    if volume_name:
-        vol_snippet = f"  {volume_name}:\n"
-        volumes_pos = find_top_level(new_content, "volumes")
-        if volumes_pos != -1:
-            next_section = re.search(
-                r"^[a-z]+:", new_content[volumes_pos + 8 :], re.MULTILINE
-            )
-            if next_section:
-                v_insert_pos = volumes_pos + 8 + next_section.start()
-            else:
-                v_insert_pos = len(new_content)
+        with open(compose_path, "w") as f:
+            yaml.safe_dump(data, f, default_flow_style=False, sort_keys=False)
 
-            new_content = (
-                new_content[:v_insert_pos].rstrip()
-                + "\n"
-                + vol_snippet
-                + "\n"
-                + new_content[v_insert_pos:]
-            )
-        else:
-            new_content = new_content.rstrip() + f"\n\nvolumes:\n{vol_snippet}"
+    except yaml.YAMLError as exc:
+        console.print(f"[danger]Error while loading YAML : {exc}[/danger]")
+        raise typer.Exit(1)
+    except Exception as e:
+        console.print(f"[danger]Unexpected error : {e}[/danger]")
+        raise typer.Exit(1)
 
-    with open(compose_path, "w") as f:
-        f.write(new_content.replace("\n\n\n", "\n\n"))
+
+def create_compose_file(
+    path: Path,
+    base_template_content: str,
+    extra_services: Optional[Dict] = None,
+    named_volumes: Optional[List[str]] = None,
+    app_volumes: Optional[List[str]] = None,
+):
+    compose_path = path / "docker-compose.yml"
+
+    try:
+        data = yaml.safe_load(base_template_content) or {}
+
+        if extra_services:
+            if "services" not in data or data["services"] is None:
+                data["services"] = {}
+            data["services"].update(extra_services)
+
+        if named_volumes:
+            if "volumes" not in data or data["volumes"] is None:
+                data["volumes"] = {}
+            for vol in named_volumes:
+                data["volumes"][vol] = {}
+
+        if app_volumes and "services" in data and "app" in data["services"]:
+            app_service = data["services"]["app"]
+            if "volumes" not in app_service or app_service["volumes"] is None:
+                app_service["volumes"] = []
+
+            for vol in app_volumes:
+                if vol not in app_service["volumes"]:
+                    app_service["volumes"].append(vol)
+
+        with open(compose_path, "w") as f:
+            yaml.safe_dump(data, f, default_flow_style=False, sort_keys=False)
+
+    except yaml.YAMLError as exc:
+        console.print(f"[danger]Error while creating YAML : {exc}[/danger]")
+        raise typer.Exit(1)
+    except Exception as e:
+        console.print(f"[danger]Unexpected error : {e}[/danger]")
+        raise typer.Exit(1)

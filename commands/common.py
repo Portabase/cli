@@ -49,6 +49,7 @@ def uninstall(
     path: Path = typer.Argument(..., help="Path to component folder"),
     force: bool = typer.Option(False, "--force", "-f")
 ):
+    """Uninstall and delete a Portabase component's folder and containers."""
     path = path.resolve()
     validate_work_dir(path)
     

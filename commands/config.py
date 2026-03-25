@@ -3,7 +3,11 @@ import typer
 from core.config import get_config_value, set_config_value
 from core.utils import console
 
-app = typer.Typer(help="Manage global CLI configuration.")
+app = typer.Typer(
+    help="Manage global CLI configuration.",
+    no_args_is_help=True,
+    rich_markup_mode="rich",
+)
 
 
 @app.command()
@@ -23,6 +27,7 @@ def channel(
 
 @app.command()
 def show():
+    """Show the current CLI configuration."""
     channel = get_config_value("update_channel", "auto (based on current version)")
     console.print(f"[info]Current Configuration:[/info]")
     console.print(f"  [bold]Update Channel:[/bold] {channel}")

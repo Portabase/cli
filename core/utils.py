@@ -29,7 +29,7 @@ custom_theme = Theme(
 
 HINTS = [
     "The Edge Key contains the connection details for dashboard and agent communication.",
-    "Portabase uses Docker Compose to isolate your databases.",
+    "Portabase uses Docker Compose or k8s to isolate your databases.",
     "You can list all configured databases using 'portabase db list <name>'.",
     "Running 'portabase stop' will gracefully shut down your containers.",
     "The agent polls the github for configuration updates.",

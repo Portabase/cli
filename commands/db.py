@@ -3,6 +3,7 @@ import uuid
 from pathlib import Path
 
 import typer
+import yaml
 from rich.panel import Panel
 from rich.prompt import IntPrompt, Prompt
 from rich.table import Table
@@ -15,13 +16,17 @@ from templates.compose import (
     AGENT_MONGODB_AUTH_SNIPPET,
     AGENT_MONGODB_SNIPPET,
     AGENT_POSTGRES_SNIPPET,
-    AGENT_REDIS_SNIPPET,
     AGENT_REDIS_AUTH_SNIPPET,
-    AGENT_VALKEY_SNIPPET,
+    AGENT_REDIS_SNIPPET,
     AGENT_VALKEY_AUTH_SNIPPET,
+    AGENT_VALKEY_SNIPPET,
 )
 
-app = typer.Typer(help="Manage databases configuration.")
+app = typer.Typer(
+    help="Manage databases configuration.",
+    no_args_is_help=True,
+    rich_markup_mode="rich",
+)
 
 
 @app.command("list")
@@ -74,6 +79,25 @@ def add_db(name: str = typer.Argument(..., help="Name of the agent")):
     mode = Prompt.ask(
         "Configuration Mode", choices=["new", "existing"], default="existing"
     )
+
+    table = Table(
+        title="Supported Databases", show_header=True, header_style="bold magenta"
+    )
+    table.add_column("Type", style="cyan")
+    table.add_column("Engine", style="green")
+    table.add_column("Description", style="dim")
+
+    table.add_row("SQL", "postgresql", "PostgreSQL Database")
+    table.add_row("SQL", "mysql", "MySQL Database")
+    table.add_row("SQL", "mariadb", "MariaDB Database")
+    table.add_row("SQL", "sqlite", "SQLite Database")
+    table.add_row("", "", "")
+    table.add_row("NoSQL", "mongodb", "MongoDB NoSQL")
+    table.add_row("NoSQL", "redis", "Redis Key-Value Store")
+    table.add_row("NoSQL", "valkey", "Valkey Key-Value Store")
+
+    console.print(table)
+
     category = Prompt.ask("Category", choices=["SQL", "NoSQL"], default="SQL")
 
     if mode == "existing":
@@ -103,7 +127,7 @@ def add_db(name: str = typer.Argument(..., help="Name of the agent")):
         else:
             db_name = Prompt.ask("Database Name")
             host = Prompt.ask("Host", default="localhost")
-            
+
             default_port = 5432
             if db_type in ["mysql", "mariadb"]:
                 default_port = 3306
@@ -163,25 +187,32 @@ def add_db(name: str = typer.Argument(..., help="Name of the agent")):
 
             compose_path = path / "docker-compose.yml"
             if compose_path.exists():
-                with open(compose_path, "r") as f:
-                    lines = f.readlines()
+                try:
+                    with open(compose_path, "r") as f:
+                        data = yaml.safe_load(f) or {}
 
-                new_lines = []
-                in_app_service = False
-                in_volumes = False
-                for line in lines:
-                    new_lines.append(line)
-                    if "app:" in line:
-                        in_app_service = True
-                    if in_app_service and "volumes:" in line:
-                        in_volumes = True
-                    if in_volumes and "- ./databases.json" in line:
-                        new_lines.append(f"      - ./{db_name}:/config/{db_name}\n")
-                        in_volumes = False
-                        in_app_service = False
+                    if "services" in data and "app" in data["services"]:
+                        app_service = data["services"]["app"]
 
-                with open(compose_path, "w") as f:
-                    f.writelines(new_lines)
+                        if (
+                            "volumes" not in app_service
+                            or app_service["volumes"] is None
+                        ):
+                            app_service["volumes"] = []
+
+                        new_volume = f"./{db_name}:/config/{db_name}"
+                        if new_volume not in app_service["volumes"]:
+                            app_service["volumes"].append(new_volume)
+
+                    with open(compose_path, "w") as f:
+                        yaml.safe_dump(
+                            data, f, default_flow_style=False, sort_keys=False
+                        )
+                except Exception as e:
+                    console.print(
+                        f"[danger]Error while updating the SQLite database : {e}[/danger]"
+                    )
+                    raise typer.Exit(1)
 
             add_db_to_json(
                 path,
@@ -265,14 +296,14 @@ def add_db(name: str = typer.Argument(..., help="Name of the agent")):
                     .replace("${VOL_NAME}", f"{service_name}-data")
                     .replace("${DB_NAME}", f"${{{var_prefix}_DB}}")
                 )
-        
+
         elif "redis" in db_engine:
             db_port = get_free_port()
             db_name = f"redis_{secrets.token_hex(4)}"
             service_name = f"db-redis-{'auth-' if 'auth' in db_engine else ''}{secrets.token_hex(2)}"
             var_prefix = service_name.upper().replace("-", "_")
             env_vars[f"{var_prefix}_PORT"] = str(db_port)
-            
+
             if "auth" in db_engine:
                 db_pass = secrets.token_hex(8)
                 env_vars[f"{var_prefix}_PASS"] = db_pass
@@ -295,7 +326,7 @@ def add_db(name: str = typer.Argument(..., help="Name of the agent")):
             service_name = f"db-valkey-{'auth-' if 'auth' in db_engine else ''}{secrets.token_hex(2)}"
             var_prefix = service_name.upper().replace("-", "_")
             env_vars[f"{var_prefix}_PORT"] = str(db_port)
-            
+
             if "auth" in db_engine:
                 db_pass = secrets.token_hex(8)
                 env_vars[f"{var_prefix}_PASS"] = db_pass
@@ -315,13 +346,15 @@ def add_db(name: str = typer.Argument(..., help="Name of the agent")):
         if snippet:
             update_compose_file(path, snippet, f"{service_name}-data")
             write_env_file(path, env_vars)
-            
+
             db_type_for_json = db_engine.split("-")[0]
             add_db_to_json(
                 path,
                 {
                     "name": db_name,
-                    "database": "0" if db_type_for_json in ["redis", "valkey"] else db_name,
+                    "database": "0"
+                    if db_type_for_json in ["redis", "valkey"]
+                    else db_name,
                     "type": db_type_for_json,
                     "username": db_user,
                     "password": db_pass,
@@ -340,6 +373,7 @@ def add_db(name: str = typer.Argument(..., help="Name of the agent")):
 
 @app.command("remove")
 def remove_db(name: str = typer.Argument(..., help="Name of the agent")):
+    """Remove a database connection from configuration."""
     path = Path(name).resolve()
     validate_work_dir(path)
 

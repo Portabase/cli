@@ -15,10 +15,6 @@ services:
     networks:
       - portabase
 
-{{EXTRA_SERVICES}}
-
-{{EXTRA_VOLUMES}}
-
 networks:
   portabase:
     name: portabase_network
