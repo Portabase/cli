@@ -11,7 +11,7 @@ from core.config import write_file, write_env_file, add_db_to_json
 from core.docker import ensure_network, run_compose
 from core.network import fetch_template
 from templates.compose import AGENT_POSTGRES_SNIPPET, AGENT_MARIADB_SNIPPET, AGENT_MONGODB_AUTH_SNIPPET, \
-    AGENT_MONGODB_SNIPPET
+    AGENT_MONGODB_SNIPPET, AGENT_REDIS_SNIPPET, AGENT_REDIS_AUTH_SNIPPET, AGENT_VALKEY_SNIPPET, AGENT_VALKEY_AUTH_SNIPPET
 
 
 def agent(
@@ -62,11 +62,11 @@ def agent(
 
         if mode == "existing":
             console.print("[info]External/Existing Database Configuration[/info]")
-            db_type = Prompt.ask("Type", choices=["postgresql", "mysql", "mariadb", "mongodb"], default="postgresql")
+            db_type = Prompt.ask("Type", choices=["postgresql", "mysql", "mariadb", "mongodb", "redis", "valkey"], default="postgresql")
             friendly_name = Prompt.ask("Display Name", default="External DB")
             db_name = Prompt.ask("Database Name")
             host = Prompt.ask("Host", default="localhost")
-            port = IntPrompt.ask("Port", default=5432 if db_type == "postgresql" else 3306)
+            port = IntPrompt.ask("Port", default=5432 if db_type == "postgresql" else (6379 if db_type in ["redis", "valkey"] else 3306))
             user = Prompt.ask("Username")
             password = Prompt.ask("Password", password=True)
 
@@ -84,7 +84,7 @@ def agent(
 
         else:
             console.print("[info]New Local Docker Container[/info]")
-            db_engine = Prompt.ask("Engine", choices=["postgresql", "mysql", "mariadb", "mongodb-auth", "mongodb"], default="postgresql")
+            db_engine = Prompt.ask("Engine", choices=["postgresql", "mysql", "mariadb", "mongodb-auth", "mongodb", "redis", "redis-auth", "valkey", "valkey-auth"], default="postgresql")
 
             if db_engine == "postgresql":
                 pg_port = get_free_port()
@@ -224,6 +224,124 @@ def agent(
                     "generated_id": str(uuid.uuid4())
                 })
                 console.print(f"[success]✔ Added MongoDB container (Port {mongo_port})[/success]")
+
+            elif db_engine == "redis":
+                redis_port = get_free_port()
+                db_name = f"redis_{secrets.token_hex(4)}"
+                service_name = f"db-redis-{secrets.token_hex(2)}"
+
+                var_prefix = service_name.upper().replace("-", "_")
+                env_vars[f"{var_prefix}_PORT"] = str(redis_port)
+
+                snippet = AGENT_REDIS_SNIPPET \
+                    .replace("${SERVICE_NAME}", service_name) \
+                    .replace("${PORT}", f"${{{var_prefix}_PORT}}") \
+                    .replace("${VOL_NAME}", f"{service_name}-data")
+
+                extra_services += snippet
+                volumes_list.append(f"{service_name}-data")
+
+                add_db_to_json(path, {
+                    "name": db_name,
+                    "database": "0",
+                    "type": "redis",
+                    "username": "",
+                    "password": "",
+                    "port": redis_port,
+                    "host": "localhost",
+                    "generated_id": str(uuid.uuid4())
+                })
+                console.print(f"[success]✔ Added Redis container (Port {redis_port})[/success]")
+
+            elif db_engine == "redis-auth":
+                redis_port = get_free_port()
+                db_name = f"redis_{secrets.token_hex(4)}"
+                service_name = f"db-redis-auth-{secrets.token_hex(2)}"
+                db_pass = secrets.token_hex(8)
+
+                var_prefix = service_name.upper().replace("-", "_")
+                env_vars[f"{var_prefix}_PORT"] = str(redis_port)
+                env_vars[f"{var_prefix}_PASS"] = db_pass
+
+                snippet = AGENT_REDIS_AUTH_SNIPPET \
+                    .replace("${SERVICE_NAME}", service_name) \
+                    .replace("${PORT}", f"${{{var_prefix}_PORT}}") \
+                    .replace("${VOL_NAME}", f"{service_name}-data") \
+                    .replace("${PASSWORD}", f"${{{var_prefix}_PASS}}")
+
+                extra_services += snippet
+                volumes_list.append(f"{service_name}-data")
+
+                add_db_to_json(path, {
+                    "name": db_name,
+                    "database": "0",
+                    "type": "redis",
+                    "username": "",
+                    "password": db_pass,
+                    "port": redis_port,
+                    "host": "localhost",
+                    "generated_id": str(uuid.uuid4())
+                })
+                console.print(f"[success]✔ Added Redis Auth container (Port {redis_port})[/success]")
+
+            elif db_engine == "valkey":
+                valkey_port = get_free_port()
+                db_name = f"valkey_{secrets.token_hex(4)}"
+                service_name = f"db-valkey-{secrets.token_hex(2)}"
+
+                var_prefix = service_name.upper().replace("-", "_")
+                env_vars[f"{var_prefix}_PORT"] = str(valkey_port)
+
+                snippet = AGENT_VALKEY_SNIPPET \
+                    .replace("${SERVICE_NAME}", service_name) \
+                    .replace("${PORT}", f"${{{var_prefix}_PORT}}") \
+                    .replace("${VOL_NAME}", f"{service_name}-data")
+
+                extra_services += snippet
+                volumes_list.append(f"{service_name}-data")
+
+                add_db_to_json(path, {
+                    "name": db_name,
+                    "database": "0",
+                    "type": "valkey",
+                    "username": "",
+                    "password": "",
+                    "port": valkey_port,
+                    "host": "localhost",
+                    "generated_id": str(uuid.uuid4())
+                })
+                console.print(f"[success]✔ Added Valkey container (Port {valkey_port})[/success]")
+
+            elif db_engine == "valkey-auth":
+                valkey_port = get_free_port()
+                db_name = f"valkey_{secrets.token_hex(4)}"
+                service_name = f"db-valkey-auth-{secrets.token_hex(2)}"
+                db_pass = secrets.token_hex(8)
+
+                var_prefix = service_name.upper().replace("-", "_")
+                env_vars[f"{var_prefix}_PORT"] = str(valkey_port)
+                env_vars[f"{var_prefix}_PASS"] = db_pass
+
+                snippet = AGENT_VALKEY_AUTH_SNIPPET \
+                    .replace("${SERVICE_NAME}", service_name) \
+                    .replace("${PORT}", f"${{{var_prefix}_PORT}}") \
+                    .replace("${VOL_NAME}", f"{service_name}-data") \
+                    .replace("${PASSWORD}", f"${{{var_prefix}_PASS}}")
+
+                extra_services += snippet
+                volumes_list.append(f"{service_name}-data")
+
+                add_db_to_json(path, {
+                    "name": db_name,
+                    "database": "0",
+                    "type": "valkey",
+                    "username": "",
+                    "password": db_pass,
+                    "port": valkey_port,
+                    "host": "localhost",
+                    "generated_id": str(uuid.uuid4())
+                })
+                console.print(f"[success]✔ Added Valkey Auth container (Port {valkey_port})[/success]")
 
 
 

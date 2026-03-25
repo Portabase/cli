@@ -57,5 +57,61 @@ AGENT_MONGODB_SNIPPET = """
       - ${VOL_NAME}:/data/db
 """
 
+AGENT_REDIS_SNIPPET = """
+  ${SERVICE_NAME}:
+    image: redis:latest
+    container_name: ${PROJECT_NAME}-${SERVICE_NAME}
+    ports:
+      - "${PORT}:6379"
+    volumes:
+      - ${VOL_NAME}:/data
+    command: [ "redis-server", "--appendonly", "yes" ]
+    networks:
+      - portabase
+      - default
+"""
 
+AGENT_REDIS_AUTH_SNIPPET = """
+  ${SERVICE_NAME}:
+    image: redis:latest
+    container_name: ${PROJECT_NAME}-${SERVICE_NAME}
+    ports:
+      - "${PORT}:6379"
+    volumes:
+      - ${VOL_NAME}:/data
+    environment:
+      - REDIS_PASSWORD=${PASSWORD}
+    command: [ "redis-server", "--requirepass", "${PASSWORD}", "--appendonly", "yes" ]
+    networks:
+      - portabase
+      - default
+"""
 
+AGENT_VALKEY_SNIPPET = """
+  ${SERVICE_NAME}:
+    image: valkey/valkey:latest
+    container_name: ${PROJECT_NAME}-${SERVICE_NAME}
+    environment:
+      - ALLOW_EMPTY_PASSWORD=yes
+    ports:
+      - "${PORT}:6379"
+    volumes:
+      - ${VOL_NAME}:/data
+    networks:
+      - portabase
+      - default
+"""
+
+AGENT_VALKEY_AUTH_SNIPPET = """
+  ${SERVICE_NAME}:
+    image: valkey/valkey:latest
+    container_name: ${PROJECT_NAME}-${SERVICE_NAME}
+    command: --requirepass "${PASSWORD}"
+    ports:
+      - "${PORT}:6379"
+    volumes:
+      - ${VOL_NAME}:/data
+    networks:
+      - portabase
+      - default
+"""

@@ -47,11 +47,11 @@ def add_db(name: str = typer.Argument(..., help="Name of the agent")):
 
     console.print(Panel("Add External Database Connection", style="bold blue"))
     
-    db_type = Prompt.ask("Type", choices=["postgresql", "mysql", "mariadb"], default="postgresql")
+    db_type = Prompt.ask("Type", choices=["postgresql", "mysql", "mariadb", "redis", "valkey"], default="postgresql")
     friendly_name = Prompt.ask("Display Name", default="External DB")
     db_name = Prompt.ask("Database Name")
     host = Prompt.ask("Host", default="localhost")
-    port = IntPrompt.ask("Port", default=5432 if db_type == "postgresql" else 3306)
+    port = IntPrompt.ask("Port", default=5432 if db_type == "postgresql" else (6379 if db_type in ["redis", "valkey"] else 3306))
     user = Prompt.ask("Username")
     password = Prompt.ask("Password", password=True)
 
