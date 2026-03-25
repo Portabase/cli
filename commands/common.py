@@ -3,27 +3,30 @@ import subprocess
 import shutil
 from pathlib import Path
 from rich.prompt import Confirm
-from core.utils import console, validate_work_dir
+from core.utils import console, validate_work_dir, get_random_hint
 from core.docker import run_compose
 
 def start(path: Path = typer.Argument(..., help="Path to component folder")):
     path = path.resolve()
     validate_work_dir(path)
-    with console.status(f"[bold magenta]Starting {path.name}...[/bold magenta]"):
+    status_msg = f"[bold magenta]Starting {path.name}...[/bold magenta]\n{get_random_hint()}"
+    with console.status(status_msg):
         run_compose(path, ["up", "-d"])
     console.print("[success]✔ Started[/success]")
 
 def stop(path: Path = typer.Argument(..., help="Path to component folder")):
     path = path.resolve()
     validate_work_dir(path)
-    with console.status(f"[bold magenta]Stopping {path.name}...[/bold magenta]"):
+    status_msg = f"[bold magenta]Stopping {path.name}...[/bold magenta]\n{get_random_hint()}"
+    with console.status(status_msg):
         run_compose(path, ["stop"])
     console.print("[success]✔ Stopped[/success]")
 
 def restart(path: Path = typer.Argument(..., help="Path to component folder")):
     path = path.resolve()
     validate_work_dir(path)
-    with console.status(f"[bold magenta]Restarting {path.name}...[/bold magenta]"):
+    status_msg = f"[bold magenta]Restarting {path.name}...[/bold magenta]\n{get_random_hint()}"
+    with console.status(status_msg):
         run_compose(path, ["restart"])
     console.print("[success]✔ Restarted[/success]")
 
@@ -54,7 +57,8 @@ def uninstall(
         if not Confirm.ask("Are you sure?"):
             raise typer.Exit()
 
-    with console.status(f"[bold red]Uninstalling...[/bold red]"):
+    status_msg = f"[bold red]Uninstalling...[/bold red]\n{get_random_hint()}"
+    with console.status(status_msg):
         run_compose(path, ["down", "-v"])
         try:
             shutil.rmtree(path)
