@@ -122,7 +122,7 @@ def dashboard(
     console.print(
         Panel(
             summary,
-            title="[bold white]PROPOSED CONFIGURATION[/bold white]",
+            title="[bold white]SUMMARY[/bold white]",
             border_style="bold blue",
             expand=False,
         )

@@ -8,12 +8,17 @@ from rich.prompt import IntPrompt, Prompt
 from rich.table import Table
 
 from core.config import add_db_to_json, load_db_config, save_db_config, write_env_file
+from core.docker import run_compose, update_compose_file
 from core.utils import console, get_free_port, validate_work_dir
 from templates.compose import (
     AGENT_MARIADB_SNIPPET,
     AGENT_MONGODB_AUTH_SNIPPET,
     AGENT_MONGODB_SNIPPET,
     AGENT_POSTGRES_SNIPPET,
+    AGENT_REDIS_SNIPPET,
+    AGENT_REDIS_AUTH_SNIPPET,
+    AGENT_VALKEY_SNIPPET,
+    AGENT_VALKEY_AUTH_SNIPPET,
 )
 
 app = typer.Typer(help="Manage databases configuration.")
@@ -64,16 +69,7 @@ def add_db(name: str = typer.Argument(..., help="Name of the agent")):
     path = Path(name).resolve()
     validate_work_dir(path)
 
-    console.print(Panel("Add External Database Connection", style="bold blue"))
-    
-    db_type = Prompt.ask("Type", choices=["postgresql", "mysql", "mariadb", "redis", "valkey"], default="postgresql")
-    friendly_name = Prompt.ask("Display Name", default="External DB")
-    db_name = Prompt.ask("Database Name")
-    host = Prompt.ask("Host", default="localhost")
-    port = IntPrompt.ask("Port", default=5432 if db_type == "postgresql" else (6379 if db_type in ["redis", "valkey"] else 3306))
-    user = Prompt.ask("Username")
-    password = Prompt.ask("Password", password=True)
-    console.print(Panel("Add Database to Agent", style="bold blue"))
+    console.print(Panel("Add Database Connection", style="bold blue"))
 
     mode = Prompt.ask(
         "Configuration Mode", choices=["new", "existing"], default="existing"
@@ -88,7 +84,11 @@ def add_db(name: str = typer.Argument(..., help="Name of the agent")):
                 default="postgresql",
             )
         else:
-            db_type = Prompt.ask("Type", choices=["mongodb"], default="mongodb")
+            db_type = Prompt.ask(
+                "Type",
+                choices=["mongodb", "redis", "valkey"],
+                default="mongodb",
+            )
 
         friendly_name = Prompt.ask("Display Name", default="External DB")
 
@@ -103,12 +103,16 @@ def add_db(name: str = typer.Argument(..., help="Name of the agent")):
         else:
             db_name = Prompt.ask("Database Name")
             host = Prompt.ask("Host", default="localhost")
-            port = IntPrompt.ask(
-                "Port",
-                default=5432
-                if db_type == "postgresql"
-                else (3306 if db_type in ["mysql", "mariadb"] else 27017),
-            )
+            
+            default_port = 5432
+            if db_type in ["mysql", "mariadb"]:
+                default_port = 3306
+            elif db_type == "mongodb":
+                default_port = 27017
+            elif db_type in ["redis", "valkey"]:
+                default_port = 6379
+
+            port = IntPrompt.ask("Port", default=default_port)
             user = Prompt.ask("Username")
             password = Prompt.ask("Password", password=True)
 
@@ -131,11 +135,18 @@ def add_db(name: str = typer.Argument(..., help="Name of the agent")):
                 choices=["postgresql", "mysql", "mariadb", "sqlite"],
                 default="postgresql",
             )
+            db_variant = "standard"
         else:
-            db_engine = Prompt.ask("Engine", choices=["mongodb"], default="mongodb")
-            db_variant = Prompt.ask(
-                "Type", choices=["standard", "with-auth"], default="standard"
+            db_engine = Prompt.ask(
+                "Engine",
+                choices=["mongodb", "redis", "valkey"],
+                default="mongodb",
             )
+            db_variant = Prompt.ask(
+                "Variant", choices=["standard", "with-auth"], default="standard"
+            )
+            if db_variant == "with-auth":
+                db_engine = f"{db_engine}-auth"
 
         env_vars = {}
         snippet = ""
@@ -254,49 +265,71 @@ def add_db(name: str = typer.Argument(..., help="Name of the agent")):
                     .replace("${VOL_NAME}", f"{service_name}-data")
                     .replace("${DB_NAME}", f"${{{var_prefix}_DB}}")
                 )
-
-        compose_path = path / "docker-compose.yml"
-        if compose_path.exists():
-            with open(compose_path, "r") as f:
-                content = f.read()
-
-            insert_pos = content.find("networks:")
-            if insert_pos == -1:
-                insert_pos = len(content)
-
-            new_content = content[:insert_pos] + snippet + "\n" + content[insert_pos:]
-
-            vol_snippet = f"  {service_name}-data:\n"
-            vol_pos = new_content.find("volumes:")
-            if vol_pos != -1:
-                end_of_volumes = new_content.find("networks:", vol_pos)
-                if end_of_volumes == -1:
-                    end_of_volumes = len(new_content)
-                new_content = (
-                    new_content[:end_of_volumes]
-                    + vol_snippet
-                    + new_content[end_of_volumes:]
+        
+        elif "redis" in db_engine:
+            db_port = get_free_port()
+            db_name = f"redis_{secrets.token_hex(4)}"
+            service_name = f"db-redis-{'auth-' if 'auth' in db_engine else ''}{secrets.token_hex(2)}"
+            var_prefix = service_name.upper().replace("-", "_")
+            env_vars[f"{var_prefix}_PORT"] = str(db_port)
+            
+            if "auth" in db_engine:
+                db_pass = secrets.token_hex(8)
+                env_vars[f"{var_prefix}_PASS"] = db_pass
+                snippet = (
+                    AGENT_REDIS_AUTH_SNIPPET.replace("${SERVICE_NAME}", service_name)
+                    .replace("${PORT}", f"${{{var_prefix}_PORT}}")
+                    .replace("${VOL_NAME}", f"{service_name}-data")
+                    .replace("${PASSWORD}", f"${{{var_prefix}_PASS}}")
                 )
             else:
-                new_content += f"\nvolumes:\n{vol_snippet}"
+                snippet = (
+                    AGENT_REDIS_SNIPPET.replace("${SERVICE_NAME}", service_name)
+                    .replace("${PORT}", f"${{{var_prefix}_PORT}}")
+                    .replace("${VOL_NAME}", f"{service_name}-data")
+                )
 
-            with open(compose_path, "w") as f:
-                f.write(new_content)
+        elif "valkey" in db_engine:
+            db_port = get_free_port()
+            db_name = f"valkey_{secrets.token_hex(4)}"
+            service_name = f"db-valkey-{'auth-' if 'auth' in db_engine else ''}{secrets.token_hex(2)}"
+            var_prefix = service_name.upper().replace("-", "_")
+            env_vars[f"{var_prefix}_PORT"] = str(db_port)
+            
+            if "auth" in db_engine:
+                db_pass = secrets.token_hex(8)
+                env_vars[f"{var_prefix}_PASS"] = db_pass
+                snippet = (
+                    AGENT_VALKEY_AUTH_SNIPPET.replace("${SERVICE_NAME}", service_name)
+                    .replace("${PORT}", f"${{{var_prefix}_PORT}}")
+                    .replace("${VOL_NAME}", f"{service_name}-data")
+                    .replace("${PASSWORD}", f"${{{var_prefix}_PASS}}")
+                )
+            else:
+                snippet = (
+                    AGENT_VALKEY_SNIPPET.replace("${SERVICE_NAME}", service_name)
+                    .replace("${PORT}", f"${{{var_prefix}_PORT}}")
+                    .replace("${VOL_NAME}", f"{service_name}-data")
+                )
 
-        write_env_file(path, env_vars)
-        add_db_to_json(
-            path,
-            {
-                "name": db_name,
-                "database": db_name,
-                "type": db_engine,
-                "username": db_user,
-                "password": db_pass,
-                "port": db_port,
-                "host": "localhost",
-                "generated_id": str(uuid.uuid4()),
-            },
-        )
+        if snippet:
+            update_compose_file(path, snippet, f"{service_name}-data")
+            write_env_file(path, env_vars)
+            
+            db_type_for_json = db_engine.split("-")[0]
+            add_db_to_json(
+                path,
+                {
+                    "name": db_name,
+                    "database": "0" if db_type_for_json in ["redis", "valkey"] else db_name,
+                    "type": db_type_for_json,
+                    "username": db_user,
+                    "password": db_pass,
+                    "port": db_port,
+                    "host": "localhost",
+                    "generated_id": str(uuid.uuid4()),
+                },
+            )
 
     console.print("[success]✔ Database added to configuration.[/success]")
     console.print(

@@ -10,8 +10,16 @@ from rich.prompt import Confirm, IntPrompt, Prompt
 from rich.table import Table
 
 from core.config import add_db_to_json, load_db_config, write_env_file, write_file
-from core.docker import ensure_network, run_compose
+from core.docker import ensure_network, run_compose, update_compose_file
 from core.network import fetch_template
+from core.utils import (
+    check_system,
+    console,
+    get_free_port,
+    get_random_hint,
+    print_banner,
+    validate_edge_key,
+)
 from templates.compose import (
     AGENT_MARIADB_SNIPPET,
     AGENT_MONGODB_AUTH_SNIPPET,
@@ -105,29 +113,6 @@ def agent(
 
         if mode == "existing":
             console.print("[info]External/Existing Database Configuration[/info]")
-            db_type = Prompt.ask(
-                "Type",
-                choices=[
-                    "postgresql",
-                    "mysql",
-                    "mariadb",
-                    "mongodb",
-                    "redis",
-                    "valkey",
-                ],
-                default="postgresql",
-            )
-            friendly_name = Prompt.ask("Display Name", default="External DB")
-            db_name = Prompt.ask("Database Name")
-            host = Prompt.ask("Host", default="localhost")
-            port = IntPrompt.ask(
-                "Port",
-                default=5432
-                if db_type == "postgresql"
-                else (6379 if db_type in ["redis", "valkey"] else 3306),
-            )
-            user = Prompt.ask("Username")
-            password = Prompt.ask("Password", password=True)
             category = Prompt.ask("Category", choices=["SQL", "NoSQL"], default="SQL")
 
             if category == "SQL":
@@ -139,7 +124,7 @@ def agent(
             else:
                 db_type = Prompt.ask(
                     "Type",
-                    choices=["mongodb"],
+                    choices=["mongodb", "redis", "valkey"],
                     default="mongodb",
                 )
 
@@ -165,12 +150,16 @@ def agent(
             else:
                 db_name = Prompt.ask("Database Name")
                 host = Prompt.ask("Host", default="localhost")
-                port = IntPrompt.ask(
-                    "Port",
-                    default=5432
-                    if db_type == "postgresql"
-                    else (3306 if db_type in ["mysql", "mariadb"] else 27017),
-                )
+
+                default_port = 5432
+                if db_type in ["mysql", "mariadb"]:
+                    default_port = 3306
+                elif db_type == "mongodb":
+                    default_port = 27017
+                elif db_type in ["redis", "valkey"]:
+                    default_port = 6379
+
+                port = IntPrompt.ask("Port", default=default_port)
                 user = Prompt.ask("Username")
                 password = Prompt.ask("Password", password=True)
 
@@ -191,21 +180,6 @@ def agent(
 
         else:
             console.print("[info]New Local Docker Container[/info]")
-            db_engine = Prompt.ask(
-                "Engine",
-                choices=[
-                    "postgresql",
-                    "mysql",
-                    "mariadb",
-                    "mongodb-auth",
-                    "mongodb",
-                    "redis",
-                    "redis-auth",
-                    "valkey",
-                    "valkey-auth",
-                ],
-                default="postgresql",
-            )
             category = Prompt.ask("Category", choices=["SQL", "NoSQL"], default="SQL")
 
             if category == "SQL":
@@ -218,12 +192,14 @@ def agent(
             else:
                 db_engine = Prompt.ask(
                     "Engine",
-                    choices=["mongodb"],
+                    choices=["mongodb", "redis", "valkey"],
                     default="mongodb",
                 )
                 db_variant = Prompt.ask(
-                    "Type", choices=["standard", "with-auth"], default="standard"
+                    "Variant", choices=["standard", "with-auth"], default="standard"
                 )
+                if db_variant == "with-auth":
+                    db_engine = f"{db_engine}-auth"
 
             if db_engine == "sqlite":
                 db_name = Prompt.ask("Database Name", default="local")
@@ -595,7 +571,7 @@ def agent(
     console.print(
         Panel(
             summary,
-            title="[bold white]PROPOSED CONFIGURATION[/bold white]",
+            title="[bold white]SUMMARY[/bold white]",
             border_style="bold blue",
             expand=False,
         )
