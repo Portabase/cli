@@ -57,5 +57,25 @@ AGENT_MONGODB_SNIPPET = """
       - ${VOL_NAME}:/data/db
 """
 
+AGENT_FIREBIRD_SNIPPET = """
+  ${SERVICE_NAME}:
+    container_name: ${PROJECT_NAME}-${SERVICE_NAME}
+    image: firebirdsql/firebird
+    restart: always
+    networks:
+      - portabase
+      - default
+    ports:
+      - "${PORT}:3050"
+    volumes:
+      - ${VOL_NAME}:/var/lib/firebird/data
+    environment:
+      - FIREBIRD_DATABASE=${DB_NAME}
+      - FIREBIRD_USER=${USER}
+      - FIREBIRD_PASSWORD=${PASSWORD}
+      - FIREBIRD_ROOT_PASSWORD=${PASSWORD}
+      - FIREBIRD_DATABASE_DEFAULT_CHARSET=UTF8
+"""
+
 
 

@@ -10,6 +10,7 @@ from rich.table import Table
 from core.config import add_db_to_json, load_db_config, save_db_config, write_env_file
 from core.utils import console, get_free_port, validate_work_dir
 from templates.compose import (
+    AGENT_FIREBIRD_SNIPPET,
     AGENT_MARIADB_SNIPPET,
     AGENT_MONGODB_AUTH_SNIPPET,
     AGENT_MONGODB_SNIPPET,
@@ -75,7 +76,7 @@ def add_db(name: str = typer.Argument(..., help="Name of the agent")):
         if category == "SQL":
             db_type = Prompt.ask(
                 "Type",
-                choices=["postgresql", "mysql", "mariadb", "sqlite"],
+                choices=["postgresql", "mysql", "mariadb", "sqlite", "firebird"],
                 default="postgresql",
             )
         else:
@@ -98,7 +99,11 @@ def add_db(name: str = typer.Argument(..., help="Name of the agent")):
                 "Port",
                 default=5432
                 if db_type == "postgresql"
-                else (3306 if db_type in ["mysql", "mariadb"] else 27017),
+                else (
+                    3050
+                    if db_type == "firebird"
+                    else (3306 if db_type in ["mysql", "mariadb"] else 27017)
+                ),
             )
             user = Prompt.ask("Username")
             password = Prompt.ask("Password", password=True)
@@ -119,7 +124,7 @@ def add_db(name: str = typer.Argument(..., help="Name of the agent")):
         if category == "SQL":
             db_engine = Prompt.ask(
                 "Engine",
-                choices=["postgresql", "mysql", "mariadb", "sqlite"],
+                choices=["postgresql", "mysql", "mariadb", "sqlite", "firebird"],
                 default="postgresql",
             )
         else:
@@ -246,23 +251,55 @@ def add_db(name: str = typer.Argument(..., help="Name of the agent")):
                     .replace("${DB_NAME}", f"${{{var_prefix}_DB}}")
                 )
 
+        elif db_engine == "firebird":
+            db_port = get_free_port()
+            db_user = "alice"
+            db_pass = secrets.token_hex(8)
+            db_name = "mirror.fdb"
+            service_name = f"db-firebird-{secrets.token_hex(2)}"
+            var_prefix = service_name.upper().replace("-", "_")
+            env_vars[f"{var_prefix}_PORT"] = str(db_port)
+            env_vars[f"{var_prefix}_DB"] = db_name
+            env_vars[f"{var_prefix}_USER"] = db_user
+            env_vars[f"{var_prefix}_PASS"] = db_pass
+            snippet = (
+                AGENT_FIREBIRD_SNIPPET.replace("${SERVICE_NAME}", service_name)
+                .replace("${PORT}", f"${{{var_prefix}_PORT}}")
+                .replace("${VOL_NAME}", f"{service_name}-data")
+                .replace("${DB_NAME}", f"${{{var_prefix}_DB}}")
+                .replace("${USER}", f"${{{var_prefix}_USER}}")
+                .replace("${PASSWORD}", f"${{{var_prefix}_PASS}}")
+            )
+
         compose_path = path / "docker-compose.yml"
         if compose_path.exists():
             with open(compose_path, "r") as f:
                 content = f.read()
 
-            insert_pos = content.find("networks:")
-            if insert_pos == -1:
+            if "\nnetworks:" in content:
+                insert_pos = content.find("\nnetworks:") + 1
+            elif content.startswith("networks:"):
+                insert_pos = 0
+            else:
                 insert_pos = len(content)
 
             new_content = content[:insert_pos] + snippet + "\n" + content[insert_pos:]
 
             vol_snippet = f"  {service_name}-data:\n"
-            vol_pos = new_content.find("volumes:")
+
+            vol_pos = -1
+            if "\nvolumes:" in new_content:
+                vol_pos = new_content.find("\nvolumes:") + 1
+            elif new_content.startswith("volumes:"):
+                vol_pos = 0
+
             if vol_pos != -1:
-                end_of_volumes = new_content.find("networks:", vol_pos)
+                end_of_volumes = new_content.find("\nnetworks:", vol_pos)
                 if end_of_volumes == -1:
                     end_of_volumes = len(new_content)
+                else:
+                    end_of_volumes += 1
+
                 new_content = (
                     new_content[:end_of_volumes]
                     + vol_snippet
