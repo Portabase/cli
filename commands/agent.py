@@ -21,6 +21,7 @@ from core.utils import (
     validate_edge_key,
 )
 from templates.compose import (
+    AGENT_FIREBIRD_SNIPPET,
     AGENT_MARIADB_SNIPPET,
     AGENT_MONGODB_AUTH_SNIPPET,
     AGENT_MONGODB_SNIPPET,
@@ -77,6 +78,22 @@ def agent(
 
     raw_template = fetch_template("agent.yml")
 
+    if "{{EXTRA_SERVICES}}" not in raw_template:
+        if "\nnetworks:" in raw_template:
+            raw_template = raw_template.replace(
+                "\nnetworks:", "\n\n{{EXTRA_SERVICES}}\n\nnetworks:"
+            )
+        else:
+            raw_template += "\n\n{{EXTRA_SERVICES}}\n"
+
+    if "{{EXTRA_VOLUMES}}" not in raw_template:
+        if "\nnetworks:" in raw_template:
+            raw_template = raw_template.replace(
+                "\nnetworks:", "\n\n{{EXTRA_VOLUMES}}\n\nnetworks:"
+            )
+        else:
+            raw_template += "\n\n{{EXTRA_VOLUMES}}\n"
+
     env_vars = {
         "EDGE_KEY": key,
         "PROJECT_NAME": project_name,
@@ -114,7 +131,7 @@ def agent(
             if category == "SQL":
                 db_type = Prompt.ask(
                     "Type",
-                    choices=["postgresql", "mysql", "mariadb", "sqlite"],
+                    choices=["postgresql", "mysql", "mariadb", "sqlite", "firebird"],
                     default="postgresql",
                 )
             else:
@@ -150,7 +167,11 @@ def agent(
                     "Port",
                     default=5432
                     if db_type == "postgresql"
-                    else (3306 if db_type in ["mysql", "mariadb"] else 27017),
+                    else (
+                        3050
+                        if db_type == "firebird"
+                        else (3306 if db_type in ["mysql", "mariadb"] else 27017)
+                    ),
                 )
                 user = Prompt.ask("Username")
                 password = Prompt.ask("Password", password=True)
@@ -177,7 +198,7 @@ def agent(
             if category == "SQL":
                 db_engine = Prompt.ask(
                     "Engine",
-                    choices=["postgresql", "mysql", "mariadb", "sqlite"],
+                    choices=["postgresql", "mysql", "mariadb", "sqlite", "firebird"],
                     default="postgresql",
                 )
                 db_variant = "standard"
@@ -371,6 +392,48 @@ def agent(
                     console.print(
                         f"[success]✔ Added MongoDB container (Port {mongo_port})[/success]"
                     )
+
+            elif db_engine == "firebird":
+                fb_port = get_free_port()
+                db_user = "alice"
+                db_pass = secrets.token_hex(8)
+                db_name = "mirror.fdb"
+                service_name = f"db-firebird-{secrets.token_hex(2)}"
+
+                var_prefix = service_name.upper().replace("-", "_")
+                env_vars[f"{var_prefix}_PORT"] = str(fb_port)
+                env_vars[f"{var_prefix}_DB"] = db_name
+                env_vars[f"{var_prefix}_USER"] = db_user
+                env_vars[f"{var_prefix}_PASS"] = db_pass
+
+                snippet = (
+                    AGENT_FIREBIRD_SNIPPET.replace("${SERVICE_NAME}", service_name)
+                    .replace("${PORT}", f"${{{var_prefix}_PORT}}")
+                    .replace("${VOL_NAME}", f"{service_name}-data")
+                    .replace("${DB_NAME}", f"${{{var_prefix}_DB}}")
+                    .replace("${USER}", f"${{{var_prefix}_USER}}")
+                    .replace("${PASSWORD}", f"${{{var_prefix}_PASS}}")
+                )
+
+                extra_services += snippet
+                volumes_list.append(f"{service_name}-data")
+
+                add_db_to_json(
+                    path,
+                    {
+                        "name": db_name,
+                        "database": db_name,
+                        "type": "firebird",
+                        "username": db_user,
+                        "password": db_pass,
+                        "port": fb_port,
+                        "host": "localhost",
+                        "generated_id": str(uuid.uuid4()),
+                    },
+                )
+                console.print(
+                    f"[success]✔ Added Firebird container (Port {fb_port})[/success]"
+                )
 
     if volumes_list:
         for vol in volumes_list:
