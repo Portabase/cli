@@ -3,16 +3,27 @@ import binascii
 import json
 import platform
 import random
+import secrets
 import shutil
 import socket
+import string
 import subprocess
 import time
 from pathlib import Path
 
 import typer
+from questionary import Style
 from rich.align import Align
 from rich.console import Console, Theme
 from rich.prompt import Confirm
+
+questionary_style = Style(
+    [
+        ("pointer", "fg:#ff8800 bold"),
+        ("highlighted", "fg:black bg:#ff8800 bold"),
+        ("selected", "fg:#ff8800 bold"),
+    ]
+)
 
 custom_theme = Theme(
     {
@@ -52,6 +63,31 @@ HINTS = [
     "Use 'portabase --version' to check your current installation details.",
     "The 'databases.json' file keeps track of all managed database instances.",
 ]
+
+
+def generate_password(length: int = 16) -> str:
+
+    if length < 8:
+        length = 8
+
+    lower = string.ascii_lowercase
+    upper = string.ascii_uppercase
+    digits = string.digits
+    symbols = "!@#$%^&*()-_=+[]{}|;:,.<>?"
+
+    password = [
+        secrets.choice(lower),
+        secrets.choice(upper),
+        secrets.choice(digits),
+        secrets.choice(symbols),
+    ]
+
+    all_chars = lower + upper + digits + symbols
+    password += [secrets.choice(all_chars) for _ in range(length - 4)]
+
+    secrets.SystemRandom().shuffle(password)
+
+    return "".join(password)
 
 
 def get_random_hint():

@@ -1,17 +1,15 @@
-name: ${PROJECT_NAME}
 services:
-  app:
-    container_name: ${PROJECT_NAME}-app
-    restart: always
+  agent:
+    restart: unless-stopped
     image: portabase/agent:latest
     volumes:
       - ./databases.json:/config/config.json
-    extra_hosts:
-      - "localhost:host-gateway"
     environment:
-      TZ: "Europe/Paris"
+      TZ: "${TZ}"
       EDGE_KEY: "${EDGE_KEY}"
-      LOG: info
+      LOG_LEVEL: "${LOG_LEVEL}"
+      POLLING: "${POLLING}"
+      DATA_PATH: "${DATA_PATH}"
     networks:
       - portabase
 

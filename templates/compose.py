@@ -1,10 +1,9 @@
 AGENT_POSTGRES_SNIPPET = """
   ${SERVICE_NAME}:
-    container_name: ${PROJECT_NAME}-${SERVICE_NAME}
     image: postgres:17-alpine
+    restart: unless-stopped
     networks:
       - portabase
-      - default
     ports:
       - "${PORT}:5432"
     volumes:
@@ -13,12 +12,19 @@ AGENT_POSTGRES_SNIPPET = """
       - POSTGRES_DB=${DB_NAME}
       - POSTGRES_USER=${USER}
       - POSTGRES_PASSWORD=${PASSWORD}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${USER} -d ${DB_NAME}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 """
 
 AGENT_MARIADB_SNIPPET = """
   ${SERVICE_NAME}:
-    container_name: ${PROJECT_NAME}-${SERVICE_NAME}
     image: mariadb:latest
+    restart: unless-stopped
+    networks:
+      - portabase
     ports:
       - "${PORT}:3306"
     environment:
@@ -28,12 +34,19 @@ AGENT_MARIADB_SNIPPET = """
       - MYSQL_RANDOM_ROOT_PASSWORD=yes
     volumes:
       - ${VOL_NAME}:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mariadb-admin ping -h localhost -u ${USER} -p${PASSWORD}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 """
 
 AGENT_MONGODB_AUTH_SNIPPET = """
   ${SERVICE_NAME}:
-    container_name: ${PROJECT_NAME}-${SERVICE_NAME}
     image: mongo:latest
+    restart: unless-stopped
+    networks:
+      - portabase
     ports:
       - "${PORT}:27017"
     environment:
@@ -43,28 +56,38 @@ AGENT_MONGODB_AUTH_SNIPPET = """
     command: mongod --auth
     volumes:
       - ${VOL_NAME}:/data/db
+    healthcheck:
+      test: ["CMD-SHELL", "mongosh --eval 'db.runCommand({ping:1})' --quiet"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 """
 
 AGENT_MONGODB_SNIPPET = """
   ${SERVICE_NAME}:
-    container_name: ${PROJECT_NAME}-${SERVICE_NAME}
     image: mongo:latest
+    restart: unless-stopped
+    networks:
+      - portabase
     ports:
       - "${PORT}:27017"
     environment:
       - MONGO_INITDB_DATABASE=${DB_NAME}
     volumes:
       - ${VOL_NAME}:/data/db
+    healthcheck:
+      test: ["CMD-SHELL", "mongosh --eval 'db.runCommand({ping:1})' --quiet"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 """
 
 AGENT_FIREBIRD_SNIPPET = """
   ${SERVICE_NAME}:
-    container_name: ${PROJECT_NAME}-${SERVICE_NAME}
     image: firebirdsql/firebird
-    restart: always
+    restart: unless-stopped
     networks:
       - portabase
-      - default
     ports:
       - "${PORT}:3050"
     volumes:
@@ -73,9 +96,108 @@ AGENT_FIREBIRD_SNIPPET = """
       - FIREBIRD_DATABASE=${DB_NAME}
       - FIREBIRD_USER=${USER}
       - FIREBIRD_PASSWORD=${PASSWORD}
-      - FIREBIRD_ROOT_PASSWORD=${PASSWORD}
+      - FIREBIRD_ROOT_PASSWORD=${ROOT_PASSWORD}
       - FIREBIRD_DATABASE_DEFAULT_CHARSET=UTF8
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z localhost 3050"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 """
 
 
+AGENT_REDIS_SNIPPET = """
+  ${SERVICE_NAME}:
+    image: redis:latest
+    ports:
+      - "${PORT}:6379"
+    volumes:
+      - ${VOL_NAME}:/data
+    command: [ "redis-server", "--appendonly", "yes" ]
+    networks:
+      - portabase
+      - default
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli ping | grep PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+"""
 
+AGENT_REDIS_AUTH_SNIPPET = """
+  ${SERVICE_NAME}:
+    image: redis:latest
+    ports:
+      - "${PORT}:6379"
+    volumes:
+      - ${VOL_NAME}:/data
+    environment:
+      - REDIS_PASSWORD=${PASSWORD}
+    command: [ "redis-server", "--requirepass", "${PASSWORD}", "--appendonly", "yes" ]
+    networks:
+      - portabase
+      - default
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a ${PASSWORD} ping | grep PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+"""
+
+
+AGENT_VALKEY_SNIPPET = """
+  ${SERVICE_NAME}:
+    image: valkey/valkey:latest
+    environment:
+      - ALLOW_EMPTY_PASSWORD=yes
+    ports:
+      - "${PORT}:6379"
+    volumes:
+      - ${VOL_NAME}:/data
+    networks:
+      - portabase
+      - default
+    healthcheck:
+      test: ["CMD-SHELL", "valkey-cli ping | grep PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+"""
+
+AGENT_VALKEY_AUTH_SNIPPET = """
+  ${SERVICE_NAME}:
+    image: valkey/valkey:latest
+    command: --requirepass "${PASSWORD}"
+    ports:
+      - "${PORT}:6379"
+    volumes:
+      - ${VOL_NAME}:/data
+    networks:
+      - portabase
+      - default
+    healthcheck:
+      test: ["CMD-SHELL", "valkey-cli -a ${PASSWORD} ping | grep PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+"""
+
+AGENT_MSSQL_SNIPPET = """
+  ${SERVICE_NAME}:
+    image: mcr.microsoft.com/azure-sql-edge:latest
+    restart: unless-stopped
+    networks:
+      - portabase
+    ports:
+      - "${PORT}:1433"
+    environment:
+      - ACCEPT_EULA=Y
+      - MSSQL_SA_PASSWORD=${PASSWORD}
+    volumes:
+      - ${VOL_NAME}:/var/opt/mssql
+    healthcheck:
+      test: ["CMD-SHELL", "cat /proc/net/tcp6 | grep -q '059901' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+"""
