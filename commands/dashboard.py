@@ -2,6 +2,7 @@ import re
 import secrets
 from pathlib import Path
 
+import questionary
 import typer
 from rich.panel import Panel
 from rich.prompt import Confirm, IntPrompt, Prompt
@@ -16,6 +17,7 @@ from core.utils import (
     get_free_port,
     get_random_hint,
     print_banner,
+    questionary_style,
 )
 
 
@@ -46,13 +48,33 @@ def dashboard(
         "PROJECT_SECRET": auth_secret,
         "PROJECT_URL": base_url,
         "PROJECT_NAME": project_name,
+        "TZ": "Europe/Paris",
+        "LOG_LEVEL": "info",
     }
 
-    mode = Prompt.ask(
-        "Database Setup", choices=["internal", "external"], default="internal"
-    )
+    mode = questionary.select(
+        "Database Setup",
+        choices=[
+            questionary.Choice(
+                "external: create a dedicated container in the same docker-compose.yml (recommended)",
+                value="external",
+            ),
+            questionary.Choice(
+                "internal: use the database embedded in the Portabase container",
+                value="internal",
+            ),
+            questionary.Choice(
+                "custom: provide credentials of an existing database",
+                value="custom",
+            ),
+        ],
+        style=questionary_style,
+    ).ask()
 
-    if mode == "internal":
+    if not mode:
+        raise typer.Exit()
+
+    if mode == "external":
         pg_port = get_free_port()
         pg_pass = secrets.token_hex(16)
         env_vars.update(
@@ -66,7 +88,7 @@ def dashboard(
             }
         )
         final_compose = raw_template.replace("${PROJECT_NAME}", project_name)
-    else:
+    elif mode == "custom":
         console.print("[info]External Database Configuration[/info]")
         db_host = Prompt.ask("Host", default="localhost")
         db_port = IntPrompt.ask("Port", default=5432)
@@ -93,6 +115,15 @@ def dashboard(
         )
         final_compose = re.sub(r"[ ]{4}postgres-data:\n", "", final_compose)
         final_compose = final_compose.replace("${PROJECT_NAME}", project_name)
+    else:
+        final_compose = re.sub(
+            r"[ ]{8}depends_on:.*?service_healthy\n", "", raw_template, flags=re.DOTALL
+        )
+        final_compose = re.sub(
+            r"[ ]{4}db:.*?retries: 5\n", "", final_compose, flags=re.DOTALL
+        )
+        final_compose = re.sub(r"[ ]{4}postgres-data:\n", "", final_compose)
+        final_compose = final_compose.replace("${PROJECT_NAME}", project_name)
 
     summary = Table(show_header=False, box=None, padding=(0, 2))
     summary.add_column("Property", style="bold cyan")
@@ -101,16 +132,17 @@ def dashboard(
     summary.add_row("Dashboard Name", name)
     summary.add_row("Path", str(path))
     summary.add_row("Access URL", f"[bold green]http://localhost:{port}[/bold green]")
-    summary.add_row(
-        "Database Setup",
-        "All-in-one (Internal Docker DB)"
-        if mode == "internal"
-        else "Custom (External Database)",
-    )
 
-    if mode == "internal":
+    db_setup_label = {
+        "external": "Dedicated Docker Container (Recommended)",
+        "internal": "Embedded Database (In-container)",
+        "custom": "Custom/Existing Database",
+    }
+    summary.add_row("Database Setup", db_setup_label.get(mode))
+
+    if mode == "external":
         summary.add_row("Internal Port", env_vars["PG_PORT"])
-    else:
+    elif mode == "custom":
         summary.add_row("DB Host", env_vars["POSTGRES_HOST"])
         summary.add_row("DB Name", env_vars["POSTGRES_DB"])
         masked_url = re.sub(r":.*?@", ":****@", env_vars["DATABASE_URL"])
@@ -140,11 +172,14 @@ def dashboard(
     write_file(path / "docker-compose.yml", final_compose)
     write_env_file(path, env_vars)
 
-    db_info = (
-        f"\n[dim]DB Port: {env_vars.get('PG_PORT')}[/dim]"
-        if mode == "internal"
-        else f"\n[dim]External DB: {env_vars.get('POSTGRES_HOST')}[/dim]"
-    )
+    db_info = ""
+    if mode == "external":
+        db_info = f"\n[dim]DB Port: {env_vars.get('PG_PORT')}[/dim]"
+    elif mode == "custom":
+        db_info = f"\n[dim]External DB: {env_vars.get('POSTGRES_HOST')}[/dim]"
+    else:
+        db_info = "\n[dim]Embedded Database[/dim]"
+
     console.print(
         Panel(
             f"[bold white]DASHBOARD CREATED: {name}[/bold white]\n[dim]Path: {path}[/dim]{db_info}",

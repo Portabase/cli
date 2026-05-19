@@ -1,0 +1,14 @@
+{
+  "databases": [
+    {
+      "name": "mirror.fdb",
+      "database": "/var/lib/firebird/data/mirror.fdb",
+      "type": "firebird",
+      "username": "alice",
+      "password": "fbb010763d1ef8ef",
+      "port": 3050,
+      "host": "db-firebird-6f29",
+      "generated_id": "d1a4e131-5a5a-4fce-b010-e7cd33a266aa"
+    }
+  ]
+}

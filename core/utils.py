@@ -13,6 +13,15 @@ import typer
 from rich.align import Align
 from rich.console import Console, Theme
 from rich.prompt import Confirm
+from questionary import Style
+
+questionary_style = Style(
+    [
+        ("pointer", "fg:#ff8800 bold"),
+        ("highlighted", "fg:black bg:#ff8800 bold"),
+        ("selected", "fg:#ff8800 bold"),
+    ]
+)
 
 custom_theme = Theme(
     {
