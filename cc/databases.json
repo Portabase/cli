@@ -1,0 +1,54 @@
+{
+  "databases": [
+    {
+      "name": "redis_18d8f097",
+      "database": "0",
+      "type": "redis",
+      "username": "",
+      "password": ")g={1e}Vz3#LWBbf",
+      "port": 6379,
+      "host": "db-redis-auth-76be",
+      "generated_id": "33dbbc67-510e-40f8-8591-a746fb3ddd49"
+    },
+    {
+      "name": "redis_7786e739",
+      "database": "0",
+      "type": "redis",
+      "username": "",
+      "password": "",
+      "port": 6379,
+      "host": "db-redis-d8c9",
+      "generated_id": "99c2e9ef-3bcb-433f-89f6-11ef7118fec8"
+    },
+    {
+      "name": "valkey_e3f7800c",
+      "database": "0",
+      "type": "valkey",
+      "username": "",
+      "password": "",
+      "port": 6379,
+      "host": "db-valkey-ab5b",
+      "generated_id": "55976c4d-b5d1-477a-953b-dfe2f6331068"
+    },
+    {
+      "name": "valkey_c8fdf662",
+      "database": "0",
+      "type": "valkey",
+      "username": "",
+      "password": "R7fKt8y)jR^|cO!:",
+      "port": 6379,
+      "host": "db-valkey-auth-d1cd",
+      "generated_id": "c4de4d70-cea6-4ebf-b004-dd4c568d43be"
+    },
+    {
+      "name": "MSSQL",
+      "database": "master",
+      "type": "mssql",
+      "username": "sa",
+      "password": "I}+VXn7d*Wy%Iph%",
+      "port": 1433,
+      "host": "db-mssql-4914",
+      "generated_id": "01b34291-6257-4072-8de4-7c07b5d48d61"
+    }
+  ]
+}

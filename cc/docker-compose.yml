@@ -1,0 +1,128 @@
+name: cc
+services:
+  app:
+    container_name: cc-app
+    restart: always
+    image: portabase/agent:latest
+    volumes:
+      - ./databases.json:/config/config.json
+    extra_hosts:
+      - "localhost:host-gateway"
+    environment:
+      TZ: "Europe/Paris"
+      EDGE_KEY: "${EDGE_KEY}"
+      LOG: info
+    networks:
+      - portabase
+
+  db-redis-auth-76be:
+    image: redis:latest
+    ports:
+      - "${DB_REDIS_AUTH_76BE_PORT}:6379"
+    volumes:
+      - db-redis-auth-76be-data:/data
+    environment:
+      - REDIS_PASSWORD=${DB_REDIS_AUTH_76BE_PASS}
+    command:
+      [
+        "redis-server",
+        "--requirepass",
+        "${DB_REDIS_AUTH_76BE_PASS}",
+        "--appendonly",
+        "yes",
+      ]
+    networks:
+      - portabase
+      - default
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "redis-cli -a ${DB_REDIS_AUTH_76BE_PASS} ping | grep PONG",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  db-redis-d8c9:
+    image: redis:latest
+    ports:
+      - "${DB_REDIS_D8C9_PORT}:6379"
+    volumes:
+      - db-redis-d8c9-data:/data
+    command: ["redis-server", "--appendonly", "yes"]
+    networks:
+      - portabase
+      - default
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli ping | grep PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  db-valkey-ab5b:
+    image: valkey/valkey:latest
+    environment:
+      - ALLOW_EMPTY_PASSWORD=yes
+    ports:
+      - "${DB_VALKEY_AB5B_PORT}:6379"
+    volumes:
+      - db-valkey-ab5b-data:/data
+    networks:
+      - portabase
+      - default
+    healthcheck:
+      test: ["CMD-SHELL", "valkey-cli ping | grep PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  db-valkey-auth-d1cd:
+    image: valkey/valkey:latest
+    command: --requirepass "${DB_VALKEY_AUTH_D1CD_PASS}"
+    ports:
+      - "${DB_VALKEY_AUTH_D1CD_PORT}:6379"
+    volumes:
+      - db-valkey-auth-d1cd-data:/data
+    networks:
+      - portabase
+      - default
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "valkey-cli -a ${DB_VALKEY_AUTH_D1CD_PASS} ping | grep PONG",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  db-mssql-4914:
+    image: mcr.microsoft.com/azure-sql-edge:latest
+    restart: unless-stopped
+    networks:
+      - portabase
+    ports:
+      - "${DB_MSSQL_4914_PORT}:1433"
+    environment:
+      - ACCEPT_EULA=Y
+      - MSSQL_SA_PASSWORD=${DB_MSSQL_4914_PASS}
+    volumes:
+      - db-mssql-4914-data:/var/opt/mssql
+    healthcheck:
+      test: ["CMD-SHELL", "cat /proc/net/tcp6 | grep -q '059901' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
+volumes:
+  db-redis-auth-76be-data:
+  db-redis-d8c9-data:
+  db-valkey-ab5b-data:
+  db-valkey-auth-d1cd-data:
+  db-mssql-4914-data:
+
+networks:
+  portabase:
+    name: portabase_network
+    external: true

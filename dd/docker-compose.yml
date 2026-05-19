@@ -1,0 +1,35 @@
+name: dd
+services:
+    portabase:
+        container_name: dd-app
+        image: portabase/portabase:latest
+        env_file:
+            - .env
+        ports:
+            - "${HOST_PORT}:80"
+        environment:
+            - TIME_ZONE=Europe/Paris
+        volumes:
+            - portabase-data:/data
+        depends_on:
+            db:
+                condition: service_healthy
+    db:
+        container_name: dd-pg
+        image: postgres:17-alpine
+        ports:
+            - "${PG_PORT}:5432"
+        volumes:
+            - postgres-data:/var/lib/postgresql/data
+        environment:
+            - POSTGRES_DB=${POSTGRES_DB}
+            - POSTGRES_USER=${POSTGRES_USER}
+            - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+        healthcheck:
+            test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+            interval: 10s
+            timeout: 5s
+            retries: 5
+volumes:
+    postgres-data:
+    portabase-data:
