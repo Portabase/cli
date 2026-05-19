@@ -16,6 +16,7 @@ from core.network import fetch_template
 from core.utils import (
     check_system,
     console,
+    generate_password,
     get_free_port,
     get_random_hint,
     print_banner,
@@ -27,6 +28,7 @@ from templates.compose import (
     AGENT_MARIADB_SNIPPET,
     AGENT_MONGODB_AUTH_SNIPPET,
     AGENT_MONGODB_SNIPPET,
+    AGENT_MSSQL_SNIPPET,
     AGENT_POSTGRES_SNIPPET,
     AGENT_REDIS_AUTH_SNIPPET,
     AGENT_REDIS_SNIPPET,
@@ -136,6 +138,7 @@ def agent(
                         "mongodb",
                         "redis",
                         "valkey",
+                        "mssql",
                     ],
                     style=questionary_style,
                 ).ask()
@@ -175,7 +178,13 @@ def agent(
                         else (
                             3050
                             if db_type == "firebird"
-                            else (3306 if db_type in ["mysql", "mariadb"] else 27017)
+                            else (
+                                1433
+                                if db_type == "mssql"
+                                else (
+                                    3306 if db_type in ["mysql", "mariadb"] else 27017
+                                )
+                            )
                         ),
                     )
                     user = Prompt.ask("Username")
@@ -211,6 +220,7 @@ def agent(
                         "mongodb",
                         "redis",
                         "valkey",
+                        "mssql",
                     ],
                     style=questionary_style,
                 ).ask()
@@ -263,7 +273,7 @@ def agent(
                 elif db_engine == "postgresql":
                     pg_port = get_free_port()
                     db_user = "admin"
-                    db_pass = secrets.token_hex(8)
+                    db_pass = generate_password(16)
                     db_name = f"pg_{secrets.token_hex(4)}"
                     service_name = f"db-pg-{secrets.token_hex(2)}"
 
@@ -306,7 +316,7 @@ def agent(
                 elif db_engine == "mariadb" or db_engine == "mysql":
                     mysql_port = get_free_port()
                     db_user = "admin"
-                    db_pass = secrets.token_hex(8)
+                    db_pass = generate_password(16)
                     db_name = f"mysql_{secrets.token_hex(4)}"
                     service_name = f"db-mariadb-{secrets.token_hex(2)}"
 
@@ -349,7 +359,7 @@ def agent(
                     if db_variant == "with-auth":
                         mongo_port = get_free_port()
                         db_user = "admin"
-                        db_pass = secrets.token_hex(8)
+                        db_pass = generate_password(16)
                         db_name = f"mongo_{secrets.token_hex(4)}"
                         service_name = f"db-mongo-auth-{secrets.token_hex(2)}"
 
@@ -432,7 +442,7 @@ def agent(
                         redis_port = get_free_port()
                         db_name = f"redis_{secrets.token_hex(4)}"
                         service_name = f"db-redis-auth-{secrets.token_hex(2)}"
-                        db_pass = secrets.token_hex(8)
+                        db_pass = generate_password(16)
 
                         var_prefix = service_name.upper().replace("-", "_")
                         env_vars[f"{var_prefix}_PORT"] = str(redis_port)
@@ -505,7 +515,7 @@ def agent(
                         valkey_port = get_free_port()
                         db_name = f"valkey_{secrets.token_hex(4)}"
                         service_name = f"db-valkey-auth-{secrets.token_hex(2)}"
-                        db_pass = secrets.token_hex(8)
+                        db_pass = generate_password(16)
 
                         var_prefix = service_name.upper().replace("-", "_")
                         env_vars[f"{var_prefix}_PORT"] = str(valkey_port)
@@ -578,8 +588,8 @@ def agent(
                 elif db_engine == "firebird":
                     fb_port = get_free_port()
                     db_user = "alice"
-                    db_pass = secrets.token_hex(8)
-                    db_root_pass = secrets.token_hex(12)
+                    db_pass = generate_password(16)
+                    db_root_pass = generate_password(16)
                     db_name = "mirror.fdb"
                     db_container_path = f"/var/lib/firebird/data/{db_name}"
                     service_name = f"db-firebird-{secrets.token_hex(2)}"
@@ -619,6 +629,43 @@ def agent(
                     )
                     console.print(
                         f"[success]✔ Added Firebird container (Port {fb_port})[/success]"
+                    )
+
+                elif db_engine == "mssql":
+                    mssql_port = get_free_port()
+                    db_pass = generate_password(16)
+                    db_name = "master"
+                    service_name = f"db-mssql-{secrets.token_hex(2)}"
+
+                    var_prefix = service_name.upper().replace("-", "_")
+                    env_vars[f"{var_prefix}_PORT"] = str(mssql_port)
+                    env_vars[f"{var_prefix}_PASS"] = db_pass
+
+                    snippet = (
+                        AGENT_MSSQL_SNIPPET.replace("${SERVICE_NAME}", service_name)
+                        .replace("${PORT}", f"${{{var_prefix}_PORT}}")
+                        .replace("${VOL_NAME}", f"{service_name}-data")
+                        .replace("${PASSWORD}", f"${{{var_prefix}_PASS}}")
+                    )
+
+                    extra_services += snippet
+                    volumes_list.append(f"{service_name}-data")
+
+                    add_db_to_json(
+                        path,
+                        {
+                            "name": "MSSQL",
+                            "database": db_name,
+                            "type": "mssql",
+                            "username": "sa",
+                            "password": db_pass,
+                            "port": 1433,
+                            "host": service_name,
+                            "generated_id": str(uuid.uuid4()),
+                        },
+                    )
+                    console.print(
+                        f"[success]✔ Added MSSQL container (Port {mssql_port})[/success]"
                     )
                 break
 

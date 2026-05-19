@@ -181,3 +181,23 @@ AGENT_VALKEY_AUTH_SNIPPET = """
       timeout: 5s
       retries: 5
 """
+
+AGENT_MSSQL_SNIPPET = """
+  ${SERVICE_NAME}:
+    image: mcr.microsoft.com/azure-sql-edge:latest
+    restart: unless-stopped
+    networks:
+      - portabase
+    ports:
+      - "${PORT}:1433"
+    environment:
+      - ACCEPT_EULA=Y
+      - MSSQL_SA_PASSWORD=${PASSWORD}
+    volumes:
+      - ${VOL_NAME}:/var/opt/mssql
+    healthcheck:
+      test: ["CMD-SHELL", "cat /proc/net/tcp6 | grep -q '059901' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+"""

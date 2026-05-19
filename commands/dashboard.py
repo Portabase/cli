@@ -14,6 +14,7 @@ from core.network import fetch_template
 from core.utils import (
     check_system,
     console,
+    generate_password,
     get_free_port,
     get_random_hint,
     print_banner,
@@ -76,7 +77,7 @@ def dashboard(
 
     if mode == "external":
         pg_port = get_free_port()
-        pg_pass = secrets.token_hex(16)
+        pg_pass = generate_password(16)
         env_vars.update(
             {
                 "POSTGRES_DB": "portabase",

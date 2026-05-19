@@ -11,12 +11,19 @@ from rich.table import Table
 
 from core.config import add_db_to_json, load_db_config, save_db_config, write_env_file
 from core.docker import ensure_network
-from core.utils import console, get_free_port, questionary_style, validate_work_dir
+from core.utils import (
+    console,
+    generate_password,
+    get_free_port,
+    questionary_style,
+    validate_work_dir,
+)
 from templates.compose import (
     AGENT_FIREBIRD_SNIPPET,
     AGENT_MARIADB_SNIPPET,
     AGENT_MONGODB_AUTH_SNIPPET,
     AGENT_MONGODB_SNIPPET,
+    AGENT_MSSQL_SNIPPET,
     AGENT_POSTGRES_SNIPPET,
     AGENT_REDIS_AUTH_SNIPPET,
     AGENT_REDIS_SNIPPET,
@@ -91,6 +98,7 @@ def add_db(name: str = typer.Argument(..., help="Name of the agent")):
                     "sqlite",
                     "firebird",
                     "mongodb",
+                    "mssql",
                 ],
                 style=questionary_style,
             ).ask()
@@ -121,7 +129,11 @@ def add_db(name: str = typer.Argument(..., help="Name of the agent")):
                     else (
                         3050
                         if db_type == "firebird"
-                        else (3306 if db_type in ["mysql", "mariadb"] else 27017)
+                        else (
+                            1433
+                            if db_type == "mssql"
+                            else (3306 if db_type in ["mysql", "mariadb"] else 27017)
+                        )
                     ),
                 )
                 user = Prompt.ask("Username")
@@ -153,6 +165,7 @@ def add_db(name: str = typer.Argument(..., help="Name of the agent")):
                     "mongodb",
                     "redis",
                     "valkey",
+                    "mssql",
                 ],
                 style=questionary_style,
             ).ask()
@@ -236,7 +249,7 @@ def add_db(name: str = typer.Argument(..., help="Name of the agent")):
             elif db_engine == "postgresql":
                 db_port = get_free_port()
                 db_user = "admin"
-                db_pass = secrets.token_hex(8)
+                db_pass = generate_password(16)
                 db_name = f"pg_{secrets.token_hex(4)}"
                 service_name = f"db-pg-{secrets.token_hex(2)}"
                 var_prefix = service_name.upper().replace("-", "_")
@@ -256,7 +269,7 @@ def add_db(name: str = typer.Argument(..., help="Name of the agent")):
             elif db_engine in ["mysql", "mariadb"]:
                 db_port = get_free_port()
                 db_user = "admin"
-                db_pass = secrets.token_hex(8)
+                db_pass = generate_password(16)
                 db_name = f"mysql_{secrets.token_hex(4)}"
                 service_name = f"db-mariadb-{secrets.token_hex(2)}"
                 var_prefix = service_name.upper().replace("-", "_")
@@ -278,7 +291,7 @@ def add_db(name: str = typer.Argument(..., help="Name of the agent")):
                 db_name = f"mongo_{secrets.token_hex(4)}"
                 if db_variant == "with-auth":
                     db_user = "admin"
-                    db_pass = secrets.token_hex(8)
+                    db_pass = generate_password(16)
                     service_name = f"db-mongo-auth-{secrets.token_hex(2)}"
                     var_prefix = service_name.upper().replace("-", "_")
                     env_vars[f"{var_prefix}_PORT"] = str(db_port)
@@ -310,8 +323,8 @@ def add_db(name: str = typer.Argument(..., help="Name of the agent")):
             elif db_engine == "firebird":
                 db_port = get_free_port()
                 db_user = "alice"
-                db_pass = secrets.token_hex(8)
-                db_root_pass = secrets.token_hex(12)
+                db_pass = generate_password(16)
+                db_root_pass = generate_password(16)
                 db_name = "mirror.fdb"
                 db_container_path = f"/var/lib/firebird/data/{db_name}"
                 service_name = f"db-firebird-{secrets.token_hex(2)}"
@@ -335,7 +348,7 @@ def add_db(name: str = typer.Argument(..., help="Name of the agent")):
                 db_port = get_free_port()
                 db_name = f"redis_{secrets.token_hex(4)}"
                 if db_variant == "with-auth":
-                    db_pass = secrets.token_hex(8)
+                    db_pass = generate_password(16)
                     service_name = f"db-redis-auth-{secrets.token_hex(2)}"
                     var_prefix = service_name.upper().replace("-", "_")
                     env_vars[f"{var_prefix}_PORT"] = str(db_port)
@@ -362,7 +375,7 @@ def add_db(name: str = typer.Argument(..., help="Name of the agent")):
                 db_port = get_free_port()
                 db_name = f"valkey_{secrets.token_hex(4)}"
                 if db_variant == "with-auth":
-                    db_pass = secrets.token_hex(8)
+                    db_pass = generate_password(16)
                     service_name = f"db-valkey-auth-{secrets.token_hex(2)}"
                     var_prefix = service_name.upper().replace("-", "_")
                     env_vars[f"{var_prefix}_PORT"] = str(db_port)
@@ -384,6 +397,21 @@ def add_db(name: str = typer.Argument(..., help="Name of the agent")):
                         .replace("${PORT}", f"${{{var_prefix}_PORT}}")
                         .replace("${VOL_NAME}", f"{service_name}-data")
                     )
+
+            elif db_engine == "mssql":
+                db_port = get_free_port()
+                db_pass = generate_password(16)
+                db_name = "master"
+                service_name = f"db-mssql-{secrets.token_hex(2)}"
+                var_prefix = service_name.upper().replace("-", "_")
+                env_vars[f"{var_prefix}_PORT"] = str(db_port)
+                env_vars[f"{var_prefix}_PASS"] = db_pass
+                snippet = (
+                    AGENT_MSSQL_SNIPPET.replace("${SERVICE_NAME}", service_name)
+                    .replace("${PORT}", f"${{{var_prefix}_PORT}}")
+                    .replace("${VOL_NAME}", f"{service_name}-data")
+                    .replace("${PASSWORD}", f"${{{var_prefix}_PASS}}")
+                )
 
             compose_path = path / "docker-compose.yml"
             if compose_path.exists():
@@ -434,7 +462,7 @@ def add_db(name: str = typer.Argument(..., help="Name of the agent")):
                     if db_engine == "firebird"
                     else ("0" if db_engine in ["redis", "valkey"] else db_name),
                     "type": db_engine,
-                    "username": db_user,
+                    "username": "sa" if db_engine == "mssql" else db_user,
                     "password": db_pass,
                     "port": 5432
                     if db_engine == "postgresql"
@@ -444,7 +472,13 @@ def add_db(name: str = typer.Argument(..., help="Name of the agent")):
                         else (
                             3306
                             if db_engine in ["mysql", "mariadb"]
-                            else (6379 if db_engine in ["redis", "valkey"] else 27017)
+                            else (
+                                1433
+                                if db_engine == "mssql"
+                                else (
+                                    6379 if db_engine in ["redis", "valkey"] else 27017
+                                )
+                            )
                         )
                     ),
                     "host": service_name,
