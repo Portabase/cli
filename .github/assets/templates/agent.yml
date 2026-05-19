@@ -1,5 +1,5 @@
 services:
-  app:
+  agent:
     restart: unless-stopped
     image: portabase/agent:latest
     volumes:

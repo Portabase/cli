@@ -1,3 +1,4 @@
+import re
 import secrets
 import uuid
 from pathlib import Path
@@ -17,6 +18,10 @@ from templates.compose import (
     AGENT_MONGODB_AUTH_SNIPPET,
     AGENT_MONGODB_SNIPPET,
     AGENT_POSTGRES_SNIPPET,
+    AGENT_REDIS_AUTH_SNIPPET,
+    AGENT_REDIS_SNIPPET,
+    AGENT_VALKEY_AUTH_SNIPPET,
+    AGENT_VALKEY_SNIPPET,
 )
 
 app = typer.Typer(help="Manage databases configuration.")
@@ -146,6 +151,8 @@ def add_db(name: str = typer.Argument(..., help="Name of the agent")):
                     "sqlite",
                     "firebird",
                     "mongodb",
+                    "redis",
+                    "valkey",
                 ],
                 style=questionary_style,
             ).ask()
@@ -156,9 +163,15 @@ def add_db(name: str = typer.Argument(..., help="Name of the agent")):
             if not db_engine:
                 raise typer.Exit()
 
-            if db_engine == "mongodb":
+            db_variant = "no-auth"
+            if db_engine in ["mongodb", "redis", "valkey"]:
+                engine_display = {
+                    "mongodb": "MongoDB",
+                    "redis": "Redis",
+                    "valkey": "Valkey",
+                }[db_engine]
                 db_variant = questionary.select(
-                    "Select MongoDB Variant",
+                    f"Select {engine_display} Variant",
                     choices=["back", "no-auth", "with-auth"],
                     default="no-auth",
                     style=questionary_style,
@@ -186,22 +199,25 @@ def add_db(name: str = typer.Argument(..., help="Name of the agent")):
 
                 compose_path = path / "docker-compose.yml"
                 if compose_path.exists():
-                    with open(compose_path, "r") as f:
-                        lines = f.readlines()
-
+                    content = compose_path.read_text()
+                    lines = content.splitlines(keepends=True)
                     new_lines = []
                     in_app_service = False
-                    in_volumes = False
+                    inserted = False
+
                     for line in lines:
                         new_lines.append(line)
-                        if "app:" in line:
-                            in_app_service = True
-                        if in_app_service and "volumes:" in line:
-                            in_volumes = True
-                        if in_volumes and "- ./databases.json" in line:
-                            new_lines.append(f"      - ./{db_name}:/config/{db_name}\n")
-                            in_volumes = False
-                            in_app_service = False
+                        if not inserted:
+                            if re.search(r"^  app:", line):
+                                in_app_service = True
+                            elif in_app_service and re.search(r"^    volumes:", line):
+                                new_lines.append(
+                                    f"      - ./{db_name}:/config/{db_name}\n"
+                                )
+                                in_app_service = False
+                                inserted = True
+                            elif in_app_service and re.search(r"^  [a-zA-Z]", line):
+                                in_app_service = False
 
                     with open(compose_path, "w") as f:
                         f.writelines(new_lines)
@@ -315,47 +331,98 @@ def add_db(name: str = typer.Argument(..., help="Name of the agent")):
                     .replace("${ROOT_PASSWORD}", f"${{{var_prefix}_ROOT_PASS}}")
                 )
 
+            elif db_engine == "redis":
+                db_port = get_free_port()
+                db_name = f"redis_{secrets.token_hex(4)}"
+                if db_variant == "with-auth":
+                    db_pass = secrets.token_hex(8)
+                    service_name = f"db-redis-auth-{secrets.token_hex(2)}"
+                    var_prefix = service_name.upper().replace("-", "_")
+                    env_vars[f"{var_prefix}_PORT"] = str(db_port)
+                    env_vars[f"{var_prefix}_PASS"] = db_pass
+                    snippet = (
+                        AGENT_REDIS_AUTH_SNIPPET.replace(
+                            "${SERVICE_NAME}", service_name
+                        )
+                        .replace("${PORT}", f"${{{var_prefix}_PORT}}")
+                        .replace("${VOL_NAME}", f"{service_name}-data")
+                        .replace("${PASSWORD}", f"${{{var_prefix}_PASS}}")
+                    )
+                else:
+                    service_name = f"db-redis-{secrets.token_hex(2)}"
+                    var_prefix = service_name.upper().replace("-", "_")
+                    env_vars[f"{var_prefix}_PORT"] = str(db_port)
+                    snippet = (
+                        AGENT_REDIS_SNIPPET.replace("${SERVICE_NAME}", service_name)
+                        .replace("${PORT}", f"${{{var_prefix}_PORT}}")
+                        .replace("${VOL_NAME}", f"{service_name}-data")
+                    )
+
+            elif db_engine == "valkey":
+                db_port = get_free_port()
+                db_name = f"valkey_{secrets.token_hex(4)}"
+                if db_variant == "with-auth":
+                    db_pass = secrets.token_hex(8)
+                    service_name = f"db-valkey-auth-{secrets.token_hex(2)}"
+                    var_prefix = service_name.upper().replace("-", "_")
+                    env_vars[f"{var_prefix}_PORT"] = str(db_port)
+                    env_vars[f"{var_prefix}_PASS"] = db_pass
+                    snippet = (
+                        AGENT_VALKEY_AUTH_SNIPPET.replace(
+                            "${SERVICE_NAME}", service_name
+                        )
+                        .replace("${PORT}", f"${{{var_prefix}_PORT}}")
+                        .replace("${VOL_NAME}", f"{service_name}-data")
+                        .replace("${PASSWORD}", f"${{{var_prefix}_PASS}}")
+                    )
+                else:
+                    service_name = f"db-valkey-{secrets.token_hex(2)}"
+                    var_prefix = service_name.upper().replace("-", "_")
+                    env_vars[f"{var_prefix}_PORT"] = str(db_port)
+                    snippet = (
+                        AGENT_VALKEY_SNIPPET.replace("${SERVICE_NAME}", service_name)
+                        .replace("${PORT}", f"${{{var_prefix}_PORT}}")
+                        .replace("${VOL_NAME}", f"{service_name}-data")
+                    )
+
             compose_path = path / "docker-compose.yml"
             if compose_path.exists():
-                with open(compose_path, "r") as f:
-                    content = f.read()
+                content = compose_path.read_text()
 
-                if "\nnetworks:" in content:
-                    insert_pos = content.find("\nnetworks:") + 1
-                elif content.startswith("networks:"):
-                    insert_pos = 0
+                vol_match = re.search(r"^volumes:", content, re.MULTILINE)
+                net_match = re.search(r"^networks:", content, re.MULTILINE)
+
+                if vol_match:
+                    insert_pos = vol_match.start()
+                elif net_match:
+                    insert_pos = net_match.start()
                 else:
                     insert_pos = len(content)
 
-                new_content = (
-                    content[:insert_pos] + snippet + "\n" + content[insert_pos:]
-                )
+                content = content[:insert_pos] + snippet + "\n" + content[insert_pos:]
 
-                vol_snippet = f"  {service_name}-data:\n"
+                vol_match = re.search(r"^volumes:", content, re.MULTILINE)
+                net_match = re.search(r"^networks:", content, re.MULTILINE)
+                vol_entry = f"  {service_name}-data:\n"
 
-                vol_pos = -1
-                if "\nvolumes:" in new_content:
-                    vol_pos = new_content.find("\nvolumes:") + 1
-                elif new_content.startswith("volumes:"):
-                    vol_pos = 0
-
-                if vol_pos != -1:
-                    end_of_volumes = new_content.find("\nnetworks:", vol_pos)
-                    if end_of_volumes == -1:
-                        end_of_volumes = len(new_content)
+                if vol_match:
+                    if net_match and net_match.start() > vol_match.start():
+                        content = (
+                            content[: net_match.start()]
+                            + vol_entry
+                            + content[net_match.start() :]
+                        )
                     else:
-                        end_of_volumes += 1
-
-                    new_content = (
-                        new_content[:end_of_volumes]
-                        + vol_snippet
-                        + new_content[end_of_volumes:]
-                    )
+                        if not content.endswith("\n"):
+                            content += "\n"
+                        content += vol_entry
                 else:
-                    new_content += f"\nvolumes:\n{vol_snippet}"
+                    if not content.endswith("\n"):
+                        content += "\n"
+                    content += "\nvolumes:\n" + vol_entry
 
                 with open(compose_path, "w") as f:
-                    f.write(new_content)
+                    f.write(content)
 
         if db_engine != "sqlite":
             write_env_file(path, env_vars)
@@ -365,7 +432,7 @@ def add_db(name: str = typer.Argument(..., help="Name of the agent")):
                     "name": "mirror.fdb" if db_engine == "firebird" else db_name,
                     "database": db_container_path
                     if db_engine == "firebird"
-                    else db_name,
+                    else ("0" if db_engine in ["redis", "valkey"] else db_name),
                     "type": db_engine,
                     "username": db_user,
                     "password": db_pass,
@@ -374,7 +441,11 @@ def add_db(name: str = typer.Argument(..., help="Name of the agent")):
                     else (
                         3050
                         if db_engine == "firebird"
-                        else (3306 if db_engine in ["mysql", "mariadb"] else 27017)
+                        else (
+                            3306
+                            if db_engine in ["mysql", "mariadb"]
+                            else (6379 if db_engine in ["redis", "valkey"] else 27017)
+                        )
                     ),
                     "host": service_name,
                     "generated_id": str(uuid.uuid4()),

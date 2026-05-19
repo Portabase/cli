@@ -104,3 +104,80 @@ AGENT_FIREBIRD_SNIPPET = """
       timeout: 5s
       retries: 5
 """
+
+
+AGENT_REDIS_SNIPPET = """
+  ${SERVICE_NAME}:
+    image: redis:latest
+    ports:
+      - "${PORT}:6379"
+    volumes:
+      - ${VOL_NAME}:/data
+    command: [ "redis-server", "--appendonly", "yes" ]
+    networks:
+      - portabase
+      - default
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli ping | grep PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+"""
+
+AGENT_REDIS_AUTH_SNIPPET = """
+  ${SERVICE_NAME}:
+    image: redis:latest
+    ports:
+      - "${PORT}:6379"
+    volumes:
+      - ${VOL_NAME}:/data
+    environment:
+      - REDIS_PASSWORD=${PASSWORD}
+    command: [ "redis-server", "--requirepass", "${PASSWORD}", "--appendonly", "yes" ]
+    networks:
+      - portabase
+      - default
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a ${PASSWORD} ping | grep PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+"""
+
+
+AGENT_VALKEY_SNIPPET = """
+  ${SERVICE_NAME}:
+    image: valkey/valkey:latest
+    environment:
+      - ALLOW_EMPTY_PASSWORD=yes
+    ports:
+      - "${PORT}:6379"
+    volumes:
+      - ${VOL_NAME}:/data
+    networks:
+      - portabase
+      - default
+    healthcheck:
+      test: ["CMD-SHELL", "valkey-cli ping | grep PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+"""
+
+AGENT_VALKEY_AUTH_SNIPPET = """
+  ${SERVICE_NAME}:
+    image: valkey/valkey:latest
+    command: --requirepass "${PASSWORD}"
+    ports:
+      - "${PORT}:6379"
+    volumes:
+      - ${VOL_NAME}:/data
+    networks:
+      - portabase
+      - default
+    healthcheck:
+      test: ["CMD-SHELL", "valkey-cli -a ${PASSWORD} ping | grep PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+"""
