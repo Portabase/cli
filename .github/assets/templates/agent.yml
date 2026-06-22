@@ -9,7 +9,6 @@ services:
       EDGE_KEY: "${EDGE_KEY}"
       LOG_LEVEL: "${LOG_LEVEL}"
       POLLING: "${POLLING}"
-      DATA_PATH: "${DATA_PATH}"
     networks:
       - portabase
 

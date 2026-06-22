@@ -42,7 +42,6 @@ def agent(
     key: Optional[str] = typer.Option(None, "--key", "-k", help="Edge Key"),
     tz: str = typer.Option("UTC", "--tz", help="Timezone"),
     polling: int = typer.Option(5, "--polling", help="Polling frequency in seconds"),
-    data_path: str = typer.Option("/data", "--data-path", help="Internal data path"),
     start: bool = typer.Option(False, "--start", "-s", help="Start immediately"),
 ):
 
@@ -73,9 +72,6 @@ def agent(
     if polling == 5:
         polling = IntPrompt.ask("Polling frequency (seconds)", default=5)
 
-    if data_path == "/data":
-        data_path = Prompt.ask("Internal Data Path", default="/data")
-
     raw_template = fetch_template("agent.yml")
 
     if "{{EXTRA_SERVICES}}" not in raw_template:
@@ -98,7 +94,6 @@ def agent(
         "EDGE_KEY": key,
         "TZ": tz,
         "POLLING": str(polling),
-        "DATA_PATH": data_path,
         "LOG_LEVEL": "info",
     }
 
