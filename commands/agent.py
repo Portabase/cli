@@ -126,6 +126,7 @@ def agent(
                     choices=[
                         "back",
                         "postgresql",
+                        "postgresql-cluster",
                         "mysql",
                         "mariadb",
                         "sqlite",
@@ -169,7 +170,7 @@ def agent(
                     port = IntPrompt.ask(
                         "Port",
                         default=5432
-                        if db_type == "postgresql"
+                        if db_type in ["postgresql", "postgresql-cluster"]
                         else (
                             3050
                             if db_type == "firebird"
@@ -208,6 +209,7 @@ def agent(
                     choices=[
                         "back",
                         "postgresql",
+                        "postgresql-cluster",
                         "mysql",
                         "mariadb",
                         "sqlite",
@@ -265,7 +267,7 @@ def agent(
                         f"[success]✔ Added SQLite database ({db_name})[/success]"
                     )
 
-                elif db_engine == "postgresql":
+                elif db_engine in ["postgresql", "postgresql-cluster"]:
                     pg_port = get_free_port()
                     db_user = "admin"
                     db_pass = generate_password(16)
@@ -295,7 +297,7 @@ def agent(
                         {
                             "name": db_name,
                             "database": db_name,
-                            "type": "postgresql",
+                            "type": db_engine,
                             "username": db_user,
                             "password": db_pass,
                             "port": 5432,
@@ -304,8 +306,13 @@ def agent(
                         },
                     )
 
+                    label = (
+                        "Postgres Cluster"
+                        if db_engine == "postgresql-cluster"
+                        else "Postgres"
+                    )
                     console.print(
-                        f"[success]✔ Added Postgres container (Port {pg_port})[/success]"
+                        f"[success]✔ Added {label} container (Port {pg_port})[/success]"
                     )
 
                 elif db_engine == "mariadb" or db_engine == "mysql":
