@@ -93,6 +93,7 @@ def add_db(name: str = typer.Argument(..., help="Name of the agent")):
                 choices=[
                     "back",
                     "postgresql",
+                    "postgresql-cluster",
                     "mysql",
                     "mariadb",
                     "sqlite",
@@ -108,6 +109,14 @@ def add_db(name: str = typer.Argument(..., help="Name of the agent")):
 
             if not db_type:
                 raise typer.Exit()
+
+            if db_type == "postgresql-cluster":
+                console.print(
+                    "[warning]⚠ Postgres Cluster requires a superuser. "
+                    "Cluster backup/restore uses pg_dumpall, which dumps all "
+                    "databases and global objects (roles, tablespaces). "
+                    "The provided user must be a Postgres superuser.[/warning]"
+                )
 
             friendly_name = Prompt.ask("Display Name", default="External DB")
 
@@ -125,7 +134,7 @@ def add_db(name: str = typer.Argument(..., help="Name of the agent")):
                 port = IntPrompt.ask(
                     "Port",
                     default=5432
-                    if db_type == "postgresql"
+                    if db_type in ["postgresql", "postgresql-cluster"]
                     else (
                         3050
                         if db_type == "firebird"
@@ -158,6 +167,7 @@ def add_db(name: str = typer.Argument(..., help="Name of the agent")):
                 choices=[
                     "back",
                     "postgresql",
+                    "postgresql-cluster",
                     "mysql",
                     "mariadb",
                     "sqlite",
@@ -246,7 +256,7 @@ def add_db(name: str = typer.Argument(..., help="Name of the agent")):
                 )
                 console.print(f"[success]✔ Added SQLite database ({db_name})[/success]")
 
-            elif db_engine == "postgresql":
+            elif db_engine in ["postgresql", "postgresql-cluster"]:
                 db_port = get_free_port()
                 db_user = "admin"
                 db_pass = generate_password(16)
@@ -465,7 +475,7 @@ def add_db(name: str = typer.Argument(..., help="Name of the agent")):
                     "username": "sa" if db_engine == "mssql" else db_user,
                     "password": db_pass,
                     "port": 5432
-                    if db_engine == "postgresql"
+                    if db_engine in ["postgresql", "postgresql-cluster"]
                     else (
                         3050
                         if db_engine == "firebird"
