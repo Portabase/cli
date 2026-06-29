@@ -110,6 +110,14 @@ def add_db(name: str = typer.Argument(..., help="Name of the agent")):
             if not db_type:
                 raise typer.Exit()
 
+            if db_type == "postgresql-cluster":
+                console.print(
+                    "[warning]⚠ Postgres Cluster requires a superuser. "
+                    "Cluster backup/restore uses pg_dumpall, which dumps all "
+                    "databases and global objects (roles, tablespaces). "
+                    "The provided user must be a Postgres superuser.[/warning]"
+                )
+
             friendly_name = Prompt.ask("Display Name", default="External DB")
 
             if db_type == "sqlite":
