@@ -146,7 +146,11 @@ def add_db(name: str = typer.Argument(..., help="Name of the agent")):
                     ),
                 )
                 user = Prompt.ask("Username")
-                password = Prompt.ask("Password", password=True)
+                password = questionary.password(
+                    "Password", style=questionary_style
+                ).ask()
+                if password is None:
+                    raise typer.Exit()
 
                 entry = {
                     "name": friendly_name,

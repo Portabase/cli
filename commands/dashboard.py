@@ -1,6 +1,7 @@
 import re
 import secrets
 from pathlib import Path
+from urllib.parse import quote
 
 import questionary
 import typer
@@ -84,7 +85,7 @@ def dashboard(
                 "POSTGRES_USER": "portabase",
                 "POSTGRES_PASSWORD": pg_pass,
                 "POSTGRES_HOST": "db",
-                "DATABASE_URL": f"postgresql://portabase:{pg_pass}@db:5432/portabase?schema=public",
+                "DATABASE_URL": f"postgresql://portabase:{quote(pg_pass, safe='')}@db:5432/portabase?schema=public",
                 "PG_PORT": str(pg_port),
             }
         )
@@ -95,7 +96,9 @@ def dashboard(
         db_port = IntPrompt.ask("Port", default=5432)
         db_name = Prompt.ask("Database Name", default="portabase")
         db_user = Prompt.ask("Username")
-        db_pass = Prompt.ask("Password", password=True)
+        db_pass = questionary.password("Password", style=questionary_style).ask()
+        if db_pass is None:
+            raise typer.Exit()
 
         env_vars.update(
             {
@@ -103,27 +106,31 @@ def dashboard(
                 "POSTGRES_USER": db_user,
                 "POSTGRES_PASSWORD": db_pass,
                 "POSTGRES_HOST": db_host,
-                "DATABASE_URL": f"postgresql://{db_user}:{db_pass}@{db_host}:{db_port}/{db_name}?schema=public",
+                "DATABASE_URL": f"postgresql://{quote(db_user, safe='')}:{quote(db_pass, safe='')}@{db_host}:{db_port}/{db_name}?schema=public",
                 "PG_PORT": str(db_port),
             }
         )
 
         final_compose = re.sub(
-            r"[ ]{8}depends_on:.*?service_healthy\n", "", raw_template, flags=re.DOTALL
+            r"[ ]{4}depends_on:\n[ ]{6}db:\n[ ]{8}condition: service_healthy\n",
+            "",
+            raw_template,
         )
         final_compose = re.sub(
-            r"[ ]{4}db:.*?retries: 5\n", "", final_compose, flags=re.DOTALL
+            r"[ ]{2}db:.*?retries: 5\n", "", final_compose, flags=re.DOTALL
         )
-        final_compose = re.sub(r"[ ]{4}postgres-data:\n", "", final_compose)
+        final_compose = re.sub(r"[ ]{2}postgres-data:\n", "", final_compose)
         final_compose = final_compose.replace("${PROJECT_NAME}", project_name)
     else:
         final_compose = re.sub(
-            r"[ ]{8}depends_on:.*?service_healthy\n", "", raw_template, flags=re.DOTALL
+            r"[ ]{4}depends_on:\n[ ]{6}db:\n[ ]{8}condition: service_healthy\n",
+            "",
+            raw_template,
         )
         final_compose = re.sub(
-            r"[ ]{4}db:.*?retries: 5\n", "", final_compose, flags=re.DOTALL
+            r"[ ]{2}db:.*?retries: 5\n", "", final_compose, flags=re.DOTALL
         )
-        final_compose = re.sub(r"[ ]{4}postgres-data:\n", "", final_compose)
+        final_compose = re.sub(r"[ ]{2}postgres-data:\n", "", final_compose)
         final_compose = final_compose.replace("${PROJECT_NAME}", project_name)
 
     summary = Table(show_header=False, box=None, padding=(0, 2))

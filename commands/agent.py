@@ -72,6 +72,10 @@ def agent(
     if polling == 5:
         polling = IntPrompt.ask("Polling frequency (seconds)", default=5)
 
+    add_host_gateway = Confirm.ask(
+        "Add extra_hosts mapping (localhost -> host-gateway)?", default=False
+    )
+
     raw_template = fetch_template("agent.yml")
 
     if "{{EXTRA_SERVICES}}" not in raw_template:
@@ -192,7 +196,11 @@ def agent(
                         ),
                     )
                     user = Prompt.ask("Username")
-                    password = Prompt.ask("Password", password=True)
+                    password = questionary.password(
+                        "Password", style=questionary_style
+                    ).ask()
+                    if password is None:
+                        raise typer.Exit()
 
                     add_db_to_json(
                         path,
@@ -691,6 +699,14 @@ def agent(
         "      - ./databases.json:/config/config.json", vols_str
     )
 
+    if add_host_gateway:
+        final_compose = final_compose.replace(
+            "    image: portabase/agent:latest\n",
+            '    image: portabase/agent:latest\n'
+            '    extra_hosts:\n'
+            '      - "localhost:host-gateway"\n',
+        )
+
     summary = Table(show_header=False, box=None, padding=(0, 2))
     summary.add_column("Property", style="bold cyan")
     summary.add_column("Value", style="white")
@@ -700,6 +716,7 @@ def agent(
     summary.add_row("Edge Key", f"{key[:10]}...{key[-10:]}" if len(key) > 20 else key)
     summary.add_row("Timezone", tz)
     summary.add_row("Polling", f"{polling}s")
+    summary.add_row("Host Gateway", "Yes" if add_host_gateway else "No")
 
     db_config = load_db_config(path)
     dbs = db_config.get("databases", [])
