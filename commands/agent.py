@@ -120,8 +120,11 @@ def agent(
     while Confirm.ask("Do you want to configure a database?", default=True):
         while True:
             mode = Prompt.ask(
-                "Configuration Mode", choices=["new", "existing"], default="new"
+                "Configuration Mode", choices=["new", "existing", "back"], default="new"
             )
+
+            if mode == "back":
+                break
 
             if mode == "existing":
                 console.print("[info]External/Existing Database Configuration[/info]")
@@ -702,8 +705,8 @@ def agent(
     if add_host_gateway:
         final_compose = final_compose.replace(
             "    image: portabase/agent:latest\n",
-            '    image: portabase/agent:latest\n'
-            '    extra_hosts:\n'
+            "    image: portabase/agent:latest\n"
+            "    extra_hosts:\n"
             '      - "localhost:host-gateway"\n',
         )
 

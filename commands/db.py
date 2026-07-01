@@ -84,8 +84,13 @@ def add_db(name: str = typer.Argument(..., help="Name of the agent")):
 
     while True:
         mode = Prompt.ask(
-            "Configuration Mode", choices=["new", "existing"], default="existing"
+            "Configuration Mode",
+            choices=["new", "existing", "back"],
+            default="existing",
         )
+
+        if mode == "back":
+            break
 
         if mode == "existing":
             db_type = questionary.select(
