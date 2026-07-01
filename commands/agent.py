@@ -205,19 +205,29 @@ def agent(
                     if password is None:
                         raise typer.Exit()
 
-                    add_db_to_json(
-                        path,
-                        {
-                            "name": friendly_name,
-                            "database": db_name,
-                            "type": db_type,
-                            "username": user,
-                            "password": password,
-                            "port": port,
-                            "host": host,
-                            "generated_id": str(uuid.uuid4()),
-                        },
-                    )
+                    ext_entry = {
+                        "name": friendly_name,
+                        "database": db_name,
+                        "type": db_type,
+                        "username": user,
+                        "password": password,
+                        "port": port,
+                        "host": host,
+                        "generated_id": str(uuid.uuid4()),
+                    }
+                    if db_type == "postgresql":
+                        keep_ownership = questionary.confirm(
+                            "Keep ownership? (preserve roles/privileges in dumps; "
+                            "disable for portable restores across users)",
+                            default=False,
+                            style=questionary_style,
+                        ).ask()
+                        if keep_ownership is None:
+                            raise typer.Exit()
+                        if keep_ownership:
+                            ext_entry["options"] = {"keep_ownership": True}
+
+                    add_db_to_json(path, ext_entry)
                 console.print("[success]✔ Added to config[/success]")
                 break
 
@@ -311,19 +321,29 @@ def agent(
                     extra_services += snippet
                     volumes_list.append(f"{service_name}-data")
 
-                    add_db_to_json(
-                        path,
-                        {
-                            "name": db_name,
-                            "database": db_name,
-                            "type": db_engine,
-                            "username": db_user,
-                            "password": db_pass,
-                            "port": 5432,
-                            "host": service_name,
-                            "generated_id": str(uuid.uuid4()),
-                        },
-                    )
+                    pg_entry = {
+                        "name": db_name,
+                        "database": db_name,
+                        "type": db_engine,
+                        "username": db_user,
+                        "password": db_pass,
+                        "port": 5432,
+                        "host": service_name,
+                        "generated_id": str(uuid.uuid4()),
+                    }
+                    if db_engine == "postgresql":
+                        keep_ownership = questionary.confirm(
+                            "Keep ownership? (preserve roles/privileges in dumps; "
+                            "disable for portable restores across users)",
+                            default=False,
+                            style=questionary_style,
+                        ).ask()
+                        if keep_ownership is None:
+                            raise typer.Exit()
+                        if keep_ownership:
+                            pg_entry["options"] = {"keep_ownership": True}
+
+                    add_db_to_json(path, pg_entry)
 
                     label = (
                         "Postgres Cluster"

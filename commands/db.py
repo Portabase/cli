@@ -168,6 +168,18 @@ def add_db(name: str = typer.Argument(..., help="Name of the agent")):
                     "generated_id": str(uuid.uuid4()),
                 }
 
+                if db_type == "postgresql":
+                    keep_ownership = questionary.confirm(
+                        "Keep ownership? (preserve roles/privileges in dumps; "
+                        "disable for portable restores across users)",
+                        default=False,
+                        style=questionary_style,
+                    ).ask()
+                    if keep_ownership is None:
+                        raise typer.Exit()
+                    if keep_ownership:
+                        entry["options"] = {"keep_ownership": True}
+
             add_db_to_json(path, entry)
             break
         else:
@@ -223,6 +235,7 @@ def add_db(name: str = typer.Argument(..., help="Name of the agent")):
             db_user = ""
             db_pass = ""
             db_port = 0
+            pg_options = None
 
             if db_engine == "sqlite":
                 db_name = Prompt.ask("Database Name", default="local")
@@ -284,6 +297,18 @@ def add_db(name: str = typer.Argument(..., help="Name of the agent")):
                     .replace("${USER}", f"${{{var_prefix}_USER}}")
                     .replace("${PASSWORD}", f"${{{var_prefix}_PASS}}")
                 )
+
+                if db_engine == "postgresql":
+                    keep_ownership = questionary.confirm(
+                        "Keep ownership? (preserve roles/privileges in dumps; "
+                        "disable for portable restores across users)",
+                        default=False,
+                        style=questionary_style,
+                    ).ask()
+                    if keep_ownership is None:
+                        raise typer.Exit()
+                    if keep_ownership:
+                        pg_options = {"keep_ownership": True}
 
             elif db_engine in ["mysql", "mariadb"]:
                 db_port = get_free_port()
@@ -473,37 +498,35 @@ def add_db(name: str = typer.Argument(..., help="Name of the agent")):
 
         if db_engine != "sqlite":
             write_env_file(path, env_vars)
-            add_db_to_json(
-                path,
-                {
-                    "name": "mirror.fdb" if db_engine == "firebird" else db_name,
-                    "database": db_container_path
+            new_entry = {
+                "name": "mirror.fdb" if db_engine == "firebird" else db_name,
+                "database": db_container_path
+                if db_engine == "firebird"
+                else ("0" if db_engine in ["redis", "valkey"] else db_name),
+                "type": db_engine,
+                "username": "sa" if db_engine == "mssql" else db_user,
+                "password": db_pass,
+                "port": 5432
+                if db_engine in ["postgresql", "postgresql-cluster"]
+                else (
+                    3050
                     if db_engine == "firebird"
-                    else ("0" if db_engine in ["redis", "valkey"] else db_name),
-                    "type": db_engine,
-                    "username": "sa" if db_engine == "mssql" else db_user,
-                    "password": db_pass,
-                    "port": 5432
-                    if db_engine in ["postgresql", "postgresql-cluster"]
                     else (
-                        3050
-                        if db_engine == "firebird"
+                        3306
+                        if db_engine in ["mysql", "mariadb"]
                         else (
-                            3306
-                            if db_engine in ["mysql", "mariadb"]
-                            else (
-                                1433
-                                if db_engine == "mssql"
-                                else (
-                                    6379 if db_engine in ["redis", "valkey"] else 27017
-                                )
-                            )
+                            1433
+                            if db_engine == "mssql"
+                            else (6379 if db_engine in ["redis", "valkey"] else 27017)
                         )
-                    ),
-                    "host": service_name,
-                    "generated_id": str(uuid.uuid4()),
-                },
-            )
+                    )
+                ),
+                "host": service_name,
+                "generated_id": str(uuid.uuid4()),
+            }
+            if pg_options is not None:
+                new_entry["options"] = pg_options
+            add_db_to_json(path, new_entry)
         break
 
     console.print("[success]✔ Database added to configuration.[/success]")
