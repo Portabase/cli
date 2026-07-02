@@ -216,9 +216,16 @@ def agent(
                         "generated_id": str(uuid.uuid4()),
                     }
                     if db_type == "postgresql":
+                        console.print(
+                            "[info]ℹ When enabled, omits [bold]--no-owner[/bold] and "
+                            "[bold]--no-privileges[/bold] from the dump. Ownership and role "
+                            "assignments are preserved in the output. By default, these flags "
+                            "are applied to keep restores portable across different users and "
+                            "environments, for example when migrating from one database "
+                            "instance to another.[/info]"
+                        )
                         keep_ownership = questionary.confirm(
-                            "Keep ownership? (preserve roles/privileges in dumps; "
-                            "disable for portable restores across users)",
+                            "Keep ownership?",
                             default=False,
                             style=questionary_style,
                         ).ask()
@@ -332,9 +339,16 @@ def agent(
                         "generated_id": str(uuid.uuid4()),
                     }
                     if db_engine == "postgresql":
+                        console.print(
+                            "[info]ℹ When enabled, omits [bold]--no-owner[/bold] and "
+                            "[bold]--no-privileges[/bold] from the dump. Ownership and role "
+                            "assignments are preserved in the output. By default, these flags "
+                            "are applied to keep restores portable across different users and "
+                            "environments, for example when migrating from one database "
+                            "instance to another.[/info]"
+                        )
                         keep_ownership = questionary.confirm(
-                            "Keep ownership? (preserve roles/privileges in dumps; "
-                            "disable for portable restores across users)",
+                            "Keep ownership?",
                             default=False,
                             style=questionary_style,
                         ).ask()
