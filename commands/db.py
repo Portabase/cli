@@ -33,6 +33,46 @@ from templates.compose import (
 
 app = typer.Typer(help="Manage databases configuration.")
 
+DOCKER_SOCKET_MOUNT = "/var/run/docker.sock:/var/run/docker.sock"
+
+
+def ensure_docker_socket(path: Path):
+    """Mount the Docker socket on the agent's app service if not already present."""
+    compose_path = path / "docker-compose.yml"
+    if not compose_path.exists():
+        console.print(
+            "[warning]⚠ docker-compose.yml not found. Add "
+            f"[bold]{DOCKER_SOCKET_MOUNT}[/bold] to the agent volumes manually.[/warning]"
+        )
+        return
+
+    content = compose_path.read_text()
+    if DOCKER_SOCKET_MOUNT in content:
+        return
+
+    anchor = "- ./databases.json:/config/config.json"
+    lines = content.splitlines(keepends=True)
+    new_lines = []
+    inserted = False
+    for line in lines:
+        new_lines.append(line)
+        if not inserted and anchor in line:
+            indent = line[: len(line) - len(line.lstrip())]
+            new_lines.append(f"{indent}- {DOCKER_SOCKET_MOUNT}\n")
+            inserted = True
+
+    if inserted:
+        compose_path.write_text("".join(new_lines))
+        console.print(
+            f"[info]ℹ Mounted Docker socket ([bold]{DOCKER_SOCKET_MOUNT}[/bold]) "
+            "on the agent.[/info]"
+        )
+    else:
+        console.print(
+            "[warning]⚠ Could not locate the agent volumes block. Add "
+            f"[bold]{DOCKER_SOCKET_MOUNT}[/bold] to docker-compose.yml manually.[/warning]"
+        )
+
 
 @app.command("list")
 def list_dbs(name: str = typer.Argument(..., help="Name of the agent")):
@@ -56,12 +96,17 @@ def list_dbs(name: str = typer.Argument(..., help="Name of the agent")):
 
     for db in dbs:
         db_type = db.get("type", "N/A")
-        host_port = (
-            "Local File"
-            if db_type == "sqlite"
-            else f"{db.get('host', 'N/A')}:{db.get('port', 'N/A')}"
+        if db_type == "sqlite":
+            host_port = "Local File"
+        elif db_type == "docker-volume":
+            host_port = f"volume: {db.get('volume_name', 'N/A')}"
+        else:
+            host_port = f"{db.get('host', 'N/A')}:{db.get('port', 'N/A')}"
+        username = (
+            "N/A"
+            if db_type in ("sqlite", "docker-volume")
+            else db.get("username", "N/A")
         )
-        username = "N/A" if db_type == "sqlite" else db.get("username", "N/A")
 
         table.add_row(
             db.get("name", "N/A"),
@@ -83,9 +128,49 @@ def add_db(name: str = typer.Argument(..., help="Name of the agent")):
     console.print(Panel("Add Database to Agent", style="bold blue"))
 
     while True:
+        storage_kind = questionary.select(
+            "What do you want to configure?",
+            choices=["done", "database", "docker-volume"],
+            default="database",
+            style=questionary_style,
+        ).ask()
+
+        if storage_kind in (None, "done"):
+            break
+
+        if storage_kind == "docker-volume":
+            console.print(
+                "[warning]⚠ Requires the Docker socket mounted on the agent "
+                "([bold]/var/run/docker.sock[/bold]). It will be added to "
+                "docker-compose.yml automatically.[/warning]"
+            )
+            friendly_name = Prompt.ask("Display Name", default="Docker Volume")
+            volume_name = Prompt.ask("Volume Name (e.g. databases_sqlite-data)")
+            container_name = Prompt.ask(
+                "Container Name (optional, enables auto-restart after restore)",
+                default="",
+            )
+            entry = {
+                "name": friendly_name,
+                "type": "docker-volume",
+                "volume_name": volume_name,
+                "generated_id": str(uuid.uuid4()),
+            }
+            if container_name:
+                entry["container_name"] = container_name
+            ensure_docker_socket(path)
+            add_db_to_json(path, entry)
+            console.print("[success]✔ Added to config[/success]")
+            continue
+
         mode = Prompt.ask(
-            "Configuration Mode", choices=["new", "existing"], default="existing"
+            "Configuration Mode",
+            choices=["new", "existing", "back"],
+            default="existing",
         )
+
+        if mode == "back":
+            break
 
         if mode == "existing":
             db_type = questionary.select(
@@ -163,6 +248,25 @@ def add_db(name: str = typer.Argument(..., help="Name of the agent")):
                     "generated_id": str(uuid.uuid4()),
                 }
 
+                if db_type == "postgresql":
+                    console.print(
+                        "[info]ℹ When enabled, omits [bold]--no-owner[/bold] and "
+                        "[bold]--no-privileges[/bold] from the dump. Ownership and role "
+                        "assignments are preserved in the output. By default, these flags "
+                        "are applied to keep restores portable across different users and "
+                        "environments, for example when migrating from one database "
+                        "instance to another.[/info]"
+                    )
+                    keep_ownership = questionary.confirm(
+                        "Keep ownership?",
+                        default=False,
+                        style=questionary_style,
+                    ).ask()
+                    if keep_ownership is None:
+                        raise typer.Exit()
+                    if keep_ownership:
+                        entry["options"] = {"keep_ownership": True}
+
             add_db_to_json(path, entry)
             break
         else:
@@ -218,6 +322,7 @@ def add_db(name: str = typer.Argument(..., help="Name of the agent")):
             db_user = ""
             db_pass = ""
             db_port = 0
+            pg_options = None
 
             if db_engine == "sqlite":
                 db_name = Prompt.ask("Database Name", default="local")
@@ -279,6 +384,25 @@ def add_db(name: str = typer.Argument(..., help="Name of the agent")):
                     .replace("${USER}", f"${{{var_prefix}_USER}}")
                     .replace("${PASSWORD}", f"${{{var_prefix}_PASS}}")
                 )
+
+                if db_engine == "postgresql":
+                    console.print(
+                        "[info]ℹ When enabled, omits [bold]--no-owner[/bold] and "
+                        "[bold]--no-privileges[/bold] from the dump. Ownership and role "
+                        "assignments are preserved in the output. By default, these flags "
+                        "are applied to keep restores portable across different users and "
+                        "environments, for example when migrating from one database "
+                        "instance to another.[/info]"
+                    )
+                    keep_ownership = questionary.confirm(
+                        "Keep ownership?",
+                        default=False,
+                        style=questionary_style,
+                    ).ask()
+                    if keep_ownership is None:
+                        raise typer.Exit()
+                    if keep_ownership:
+                        pg_options = {"keep_ownership": True}
 
             elif db_engine in ["mysql", "mariadb"]:
                 db_port = get_free_port()
@@ -468,37 +592,35 @@ def add_db(name: str = typer.Argument(..., help="Name of the agent")):
 
         if db_engine != "sqlite":
             write_env_file(path, env_vars)
-            add_db_to_json(
-                path,
-                {
-                    "name": "mirror.fdb" if db_engine == "firebird" else db_name,
-                    "database": db_container_path
+            new_entry = {
+                "name": "mirror.fdb" if db_engine == "firebird" else db_name,
+                "database": db_container_path
+                if db_engine == "firebird"
+                else ("0" if db_engine in ["redis", "valkey"] else db_name),
+                "type": db_engine,
+                "username": "sa" if db_engine == "mssql" else db_user,
+                "password": db_pass,
+                "port": 5432
+                if db_engine in ["postgresql", "postgresql-cluster"]
+                else (
+                    3050
                     if db_engine == "firebird"
-                    else ("0" if db_engine in ["redis", "valkey"] else db_name),
-                    "type": db_engine,
-                    "username": "sa" if db_engine == "mssql" else db_user,
-                    "password": db_pass,
-                    "port": 5432
-                    if db_engine in ["postgresql", "postgresql-cluster"]
                     else (
-                        3050
-                        if db_engine == "firebird"
+                        3306
+                        if db_engine in ["mysql", "mariadb"]
                         else (
-                            3306
-                            if db_engine in ["mysql", "mariadb"]
-                            else (
-                                1433
-                                if db_engine == "mssql"
-                                else (
-                                    6379 if db_engine in ["redis", "valkey"] else 27017
-                                )
-                            )
+                            1433
+                            if db_engine == "mssql"
+                            else (6379 if db_engine in ["redis", "valkey"] else 27017)
                         )
-                    ),
-                    "host": service_name,
-                    "generated_id": str(uuid.uuid4()),
-                },
-            )
+                    )
+                ),
+                "host": service_name,
+                "generated_id": str(uuid.uuid4()),
+            }
+            if pg_options is not None:
+                new_entry["options"] = pg_options
+            add_db_to_json(path, new_entry)
         break
 
     console.print("[success]✔ Database added to configuration.[/success]")
