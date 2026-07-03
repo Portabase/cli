@@ -117,7 +117,45 @@ def agent(
     console.print("")
     console.print(Panel("[bold]Database Setup[/bold]", style="cyan"))
 
-    while Confirm.ask("Do you want to configure a database?", default=True):
+    while True:
+        storage_kind = questionary.select(
+            "What do you want to configure?",
+            choices=["done", "database", "docker-volume"],
+            default="database",
+            style=questionary_style,
+        ).ask()
+
+        if storage_kind in (None, "done"):
+            break
+
+        if storage_kind == "docker-volume":
+            console.print(
+                "[warning]⚠ Requires the Docker socket. It will be mounted "
+                "on the agent ([bold]/var/run/docker.sock[/bold]).[/warning]"
+            )
+            friendly_name = Prompt.ask("Display Name", default="Docker Volume")
+            volume_name = Prompt.ask("Volume Name (e.g. databases_sqlite-data)")
+            container_name = Prompt.ask(
+                "Container Name (optional, enables auto-restart after restore)",
+                default="",
+            )
+            dv_entry = {
+                "name": friendly_name,
+                "type": "docker-volume",
+                "volume_name": volume_name,
+                "generated_id": str(uuid.uuid4()),
+            }
+            if container_name:
+                dv_entry["container_name"] = container_name
+
+            sock_mount = "/var/run/docker.sock:/var/run/docker.sock"
+            if sock_mount not in app_volumes:
+                app_volumes.append(sock_mount)
+
+            add_db_to_json(path, dv_entry)
+            console.print("[success]✔ Added to config[/success]")
+            continue
+
         while True:
             mode = Prompt.ask(
                 "Configuration Mode", choices=["new", "existing", "back"], default="new"
@@ -762,6 +800,10 @@ def agent(
         for db in dbs:
             if db.get("type") == "sqlite":
                 db_details.append(f"• {db['name']} (sqlite: {db['database']})")
+            elif db.get("type") == "docker-volume":
+                db_details.append(
+                    f"• {db['name']} (docker-volume: {db.get('volume_name', 'N/A')})"
+                )
             else:
                 db_details.append(
                     f"• {db['name']} ({db['type']} on port {db.get('port', 'N/A')})"

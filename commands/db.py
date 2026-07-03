@@ -33,6 +33,46 @@ from templates.compose import (
 
 app = typer.Typer(help="Manage databases configuration.")
 
+DOCKER_SOCKET_MOUNT = "/var/run/docker.sock:/var/run/docker.sock"
+
+
+def ensure_docker_socket(path: Path):
+    """Mount the Docker socket on the agent's app service if not already present."""
+    compose_path = path / "docker-compose.yml"
+    if not compose_path.exists():
+        console.print(
+            "[warning]⚠ docker-compose.yml not found. Add "
+            f"[bold]{DOCKER_SOCKET_MOUNT}[/bold] to the agent volumes manually.[/warning]"
+        )
+        return
+
+    content = compose_path.read_text()
+    if DOCKER_SOCKET_MOUNT in content:
+        return
+
+    anchor = "- ./databases.json:/config/config.json"
+    lines = content.splitlines(keepends=True)
+    new_lines = []
+    inserted = False
+    for line in lines:
+        new_lines.append(line)
+        if not inserted and anchor in line:
+            indent = line[: len(line) - len(line.lstrip())]
+            new_lines.append(f"{indent}- {DOCKER_SOCKET_MOUNT}\n")
+            inserted = True
+
+    if inserted:
+        compose_path.write_text("".join(new_lines))
+        console.print(
+            f"[info]ℹ Mounted Docker socket ([bold]{DOCKER_SOCKET_MOUNT}[/bold]) "
+            "on the agent.[/info]"
+        )
+    else:
+        console.print(
+            "[warning]⚠ Could not locate the agent volumes block. Add "
+            f"[bold]{DOCKER_SOCKET_MOUNT}[/bold] to docker-compose.yml manually.[/warning]"
+        )
+
 
 @app.command("list")
 def list_dbs(name: str = typer.Argument(..., help="Name of the agent")):
@@ -56,12 +96,17 @@ def list_dbs(name: str = typer.Argument(..., help="Name of the agent")):
 
     for db in dbs:
         db_type = db.get("type", "N/A")
-        host_port = (
-            "Local File"
-            if db_type == "sqlite"
-            else f"{db.get('host', 'N/A')}:{db.get('port', 'N/A')}"
+        if db_type == "sqlite":
+            host_port = "Local File"
+        elif db_type == "docker-volume":
+            host_port = f"volume: {db.get('volume_name', 'N/A')}"
+        else:
+            host_port = f"{db.get('host', 'N/A')}:{db.get('port', 'N/A')}"
+        username = (
+            "N/A"
+            if db_type in ("sqlite", "docker-volume")
+            else db.get("username", "N/A")
         )
-        username = "N/A" if db_type == "sqlite" else db.get("username", "N/A")
 
         table.add_row(
             db.get("name", "N/A"),
@@ -83,6 +128,41 @@ def add_db(name: str = typer.Argument(..., help="Name of the agent")):
     console.print(Panel("Add Database to Agent", style="bold blue"))
 
     while True:
+        storage_kind = questionary.select(
+            "What do you want to configure?",
+            choices=["done", "database", "docker-volume"],
+            default="database",
+            style=questionary_style,
+        ).ask()
+
+        if storage_kind in (None, "done"):
+            break
+
+        if storage_kind == "docker-volume":
+            console.print(
+                "[warning]⚠ Requires the Docker socket mounted on the agent "
+                "([bold]/var/run/docker.sock[/bold]). It will be added to "
+                "docker-compose.yml automatically.[/warning]"
+            )
+            friendly_name = Prompt.ask("Display Name", default="Docker Volume")
+            volume_name = Prompt.ask("Volume Name (e.g. databases_sqlite-data)")
+            container_name = Prompt.ask(
+                "Container Name (optional, enables auto-restart after restore)",
+                default="",
+            )
+            entry = {
+                "name": friendly_name,
+                "type": "docker-volume",
+                "volume_name": volume_name,
+                "generated_id": str(uuid.uuid4()),
+            }
+            if container_name:
+                entry["container_name"] = container_name
+            ensure_docker_socket(path)
+            add_db_to_json(path, entry)
+            console.print("[success]✔ Added to config[/success]")
+            continue
+
         mode = Prompt.ask(
             "Configuration Mode",
             choices=["new", "existing", "back"],
