@@ -102,7 +102,7 @@ def agent(
     }
 
     extra_services = ""
-    extra_volumes = "volumes:\n"
+    extra_volumes = ""
     app_volumes = ["./databases.json:/config/config.json"]
     volumes_list = []
 
@@ -134,7 +134,12 @@ def agent(
                 "on the agent ([bold]/var/run/docker.sock[/bold]).[/warning]"
             )
             friendly_name = Prompt.ask("Display Name", default="Docker Volume")
-            volume_name = Prompt.ask("Volume Name (e.g. databases_sqlite-data)")
+            volume_name = Prompt.ask("Volume Name (e.g. databases_sqlite-data)").strip()
+            while not volume_name:
+                console.print("[danger]✖ Volume Name is required.[/danger]")
+                volume_name = Prompt.ask(
+                    "Volume Name (e.g. databases_sqlite-data)"
+                ).strip()
             container_name = Prompt.ask(
                 "Container Name (optional, enables auto-restart after restore)",
                 default="",
@@ -262,11 +267,9 @@ def agent(
                             "environments, for example when migrating from one database "
                             "instance to another.[/info]"
                         )
-                        keep_ownership = questionary.confirm(
-                            "Keep ownership?",
-                            default=False,
-                            style=questionary_style,
-                        ).ask()
+
+                        keep_ownership = Confirm.ask("Keep ownership?", default=False)
+
                         if keep_ownership is None:
                             raise typer.Exit()
                         if keep_ownership:
@@ -385,11 +388,8 @@ def agent(
                             "environments, for example when migrating from one database "
                             "instance to another.[/info]"
                         )
-                        keep_ownership = questionary.confirm(
-                            "Keep ownership?",
-                            default=False,
-                            style=questionary_style,
-                        ).ask()
+                        keep_ownership = Confirm.ask("Keep ownership?", default=False)
+
                         if keep_ownership is None:
                             raise typer.Exit()
                         if keep_ownership:
@@ -763,6 +763,7 @@ def agent(
                 break
 
     if volumes_list:
+        extra_volumes = "volumes:\n"
         for vol in volumes_list:
             extra_volumes += f"  {vol}:\n"
 
