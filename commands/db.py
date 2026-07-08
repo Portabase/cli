@@ -145,7 +145,12 @@ def add_db(name: str = typer.Argument(..., help="Name of the agent")):
                 "docker-compose.yml automatically.[/warning]"
             )
             friendly_name = Prompt.ask("Display Name", default="Docker Volume")
-            volume_name = Prompt.ask("Volume Name (e.g. databases_sqlite-data)")
+            volume_name = Prompt.ask("Volume Name (e.g. databases_sqlite-data)").strip()
+            while not volume_name:
+                console.print("[danger]✖ Volume Name is required.[/danger]")
+                volume_name = Prompt.ask(
+                    "Volume Name (e.g. databases_sqlite-data)"
+                ).strip()
             container_name = Prompt.ask(
                 "Container Name (optional, enables auto-restart after restore)",
                 default="",
