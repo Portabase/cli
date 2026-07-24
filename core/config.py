@@ -3,7 +3,13 @@ import os
 import uuid
 from pathlib import Path
 
-TEMPLATE_BASE_URL = "https://s3.eu-central-3.ionoscloud.com/portabase-software/cli/public/templates"
+DEFAULT_TEMPLATE_BASE_URL = "https://s3.eu-central-3.ionoscloud.com/portabase-software/cli/public/templates"
+
+# Allow pointing the CLI at a different template host (air-gapped / private /
+# self-hosted setups) via the PORTABASE_TEMPLATE_URL environment variable.
+TEMPLATE_BASE_URL = os.environ.get(
+    "PORTABASE_TEMPLATE_URL", DEFAULT_TEMPLATE_BASE_URL
+).rstrip("/")
 GLOBAL_CONFIG_DIR = Path.home() / ".portabase"
 GLOBAL_CONFIG_FILE = GLOBAL_CONFIG_DIR / "config.json"
 
