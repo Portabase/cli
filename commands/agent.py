@@ -11,7 +11,7 @@ from rich.prompt import Confirm, IntPrompt, Prompt
 from rich.table import Table
 
 from core.config import add_db_to_json, load_db_config, write_env_file, write_file
-from core.docker import ensure_network, run_compose
+from core.docker import ensure_network, run_compose, socket_mount
 from core.network import fetch_template
 from core.utils import (
     check_system,
@@ -153,7 +153,7 @@ def agent(
             if container_name:
                 dv_entry["container_name"] = container_name
 
-            sock_mount = "/var/run/docker.sock:/var/run/docker.sock"
+            sock_mount = socket_mount()
             if sock_mount not in app_volumes:
                 app_volumes.append(sock_mount)
 

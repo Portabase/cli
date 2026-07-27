@@ -40,7 +40,7 @@ custom_theme = Theme(
 
 HINTS = [
     "The Edge Key contains the connection details for dashboard and agent communication.",
-    "Portabase uses Docker Compose to isolate your databases.",
+    "Portabase uses Docker or Podman Compose to isolate your databases.",
     "You can list all configured databases using 'portabase db list <name>'.",
     "Running 'portabase stop' will gracefully shut down your containers.",
     "The agent polls the github for configuration updates.",
@@ -49,7 +49,7 @@ HINTS = [
     "Need to update? Use 'portabase update' to get the latest version.",
     "You can add multiple databases to a single agent during setup.",
     "Portabase Dashboard provides a web interface to manage your infrastructure.",
-    "Is Docker not running? The CLI will offer to start it for you!",
+    "Is your container engine not running? The CLI will offer to start it for you!",
     "All configurations are stored locally in the component's folder.",
     "The 'portabase restart' command is useful after manual .env modifications.",
     "Portabase is open-source! Check our GitHub to contribute.",
@@ -62,6 +62,8 @@ HINTS = [
     "The 'portabase uninstall' command safely removes containers and their data.",
     "Use 'portabase --version' to check your current installation details.",
     "The 'databases.json' file keeps track of all managed database instances.",
+    "Podman user? Set 'portabase config engine podman' to pin the container engine.",
+    "Portabase auto-detects Docker or Podman, preferring Docker when both are present.",
 ]
 
 
@@ -114,63 +116,71 @@ def get_free_port():
         return s.getsockname()[1]
 
 
-def start_docker():
-    """Attempts to start the Docker daemon based on the OS."""
+def start_engine(rt):
+    """Attempts to start the container engine based on the engine and OS."""
+    engine = rt["engine"]
+    binary = rt["bin"]
+    label = engine.capitalize()
     os_type = platform.system()
 
     try:
-        if os_type == "Linux":
-            subprocess.run(["sudo", "systemctl", "start", "docker"], check=True)
-        elif os_type == "Darwin":
-            subprocess.run(["open", "--background", "-a", "Docker"], check=True)
-        elif os_type == "Windows":
-            subprocess.run(["start", "docker"], shell=True, check=True)
+        if engine == "docker":
+            if os_type == "Linux":
+                subprocess.run(["sudo", "systemctl", "start", "docker"], check=True)
+            elif os_type == "Darwin":
+                subprocess.run(["open", "--background", "-a", "Docker"], check=True)
+            elif os_type == "Windows":
+                subprocess.run(["start", "docker"], shell=True, check=True)
+        else:  # podman
+            # Podman is daemonless on Linux; only the macOS/Windows VM needs starting.
+            if os_type in ("Darwin", "Windows"):
+                subprocess.run([binary, "machine", "start"], check=True)
 
-        console.print("[info]Waiting for Docker to start...[/info]")
+        console.print(f"[info]Waiting for {label} to start...[/info]")
         for _ in range(10):
             try:
                 subprocess.run(
-                    ["docker", "info"],
+                    [binary, "info"],
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL,
                     check=True,
                 )
-                console.print("[success]✔ Docker started successfully.[/success]")
+                console.print(f"[success]✔ {label} started successfully.[/success]")
                 return True
             except:
                 time.sleep(2)
     except Exception as e:
-        console.print(f"[danger]✖ Failed to start Docker:[/danger] {e}")
+        console.print(f"[danger]✖ Failed to start {label}:[/danger] {e}")
 
     return False
 
 
 def check_system():
-    docker_path = shutil.which("docker")
+    from core.docker import get_runtime
 
-    if docker_path is None:
-        console.print("[danger]✖ Docker not found (binary missing).[/danger]")
-        raise typer.Exit(1)
+    rt = get_runtime()
+    label = rt["engine"].capitalize()
 
     try:
         subprocess.run(
-            [docker_path, "info"],
+            [rt["bin"], "info"],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             check=True,
         )
     except subprocess.CalledProcessError:
         console.print(
-            "[warning]⚠ Docker is installed but the Daemon is not running.[/warning]"
+            f"[warning]⚠ {label} is installed but not ready "
+            "(daemon/service not running).[/warning]"
         )
-        if Confirm.ask("Do you want to try starting Docker?"):
-            if start_docker():
+        if Confirm.ask(f"Do you want to try starting {label}?"):
+            if start_engine(rt):
                 return
 
-        console.print("[danger]✖ Docker is required to continue.[/danger]")
+        console.print(f"[danger]✖ {label} is required to continue.[/danger]")
         raise typer.Exit(1)
     except Exception as e:
-        console.print(f"[danger]✖ Critical Error executing Docker:[/danger] {e}")
+        console.print(f"[danger]✖ Critical Error executing {label}:[/danger] {e}")
         raise typer.Exit(1)
 
 

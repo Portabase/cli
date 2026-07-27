@@ -10,7 +10,7 @@ from rich.prompt import IntPrompt, Prompt
 from rich.table import Table
 
 from core.config import add_db_to_json, load_db_config, save_db_config, write_env_file
-from core.docker import ensure_network
+from core.docker import ensure_network, get_runtime, socket_mount
 from core.utils import (
     console,
     generate_password,
@@ -33,21 +33,27 @@ from templates.compose import (
 
 app = typer.Typer(help="Manage databases configuration.")
 
-DOCKER_SOCKET_MOUNT = "/var/run/docker.sock:/var/run/docker.sock"
-
-
 def ensure_docker_socket(path: Path):
-    """Mount the Docker socket on the agent's app service if not already present."""
+    """Mount the container socket on the agent's app service if not already present."""
+    mount = socket_mount()
+    rt = get_runtime()
+    if rt["engine"] == "podman":
+        console.print(
+            "[warning]⚠ Podman detected. Ensure the Podman socket is active "
+            "([bold]systemctl --user enable --now podman.socket[/bold] for rootless, "
+            "or the system socket for rootful).[/warning]"
+        )
+
     compose_path = path / "docker-compose.yml"
     if not compose_path.exists():
         console.print(
             "[warning]⚠ docker-compose.yml not found. Add "
-            f"[bold]{DOCKER_SOCKET_MOUNT}[/bold] to the agent volumes manually.[/warning]"
+            f"[bold]{mount}[/bold] to the agent volumes manually.[/warning]"
         )
         return
 
     content = compose_path.read_text()
-    if DOCKER_SOCKET_MOUNT in content:
+    if mount in content:
         return
 
     anchor = "- ./databases.json:/config/config.json"
@@ -58,19 +64,19 @@ def ensure_docker_socket(path: Path):
         new_lines.append(line)
         if not inserted and anchor in line:
             indent = line[: len(line) - len(line.lstrip())]
-            new_lines.append(f"{indent}- {DOCKER_SOCKET_MOUNT}\n")
+            new_lines.append(f"{indent}- {mount}\n")
             inserted = True
 
     if inserted:
         compose_path.write_text("".join(new_lines))
         console.print(
-            f"[info]ℹ Mounted Docker socket ([bold]{DOCKER_SOCKET_MOUNT}[/bold]) "
+            f"[info]ℹ Mounted container socket ([bold]{mount}[/bold]) "
             "on the agent.[/info]"
         )
     else:
         console.print(
             "[warning]⚠ Could not locate the agent volumes block. Add "
-            f"[bold]{DOCKER_SOCKET_MOUNT}[/bold] to docker-compose.yml manually.[/warning]"
+            f"[bold]{mount}[/bold] to docker-compose.yml manually.[/warning]"
         )
 
 
