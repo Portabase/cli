@@ -272,8 +272,57 @@ def agent(
 
                         if keep_ownership is None:
                             raise typer.Exit()
+
+                        console.print(
+                            "[info]ℹ Controls how the target database is cleaned before "
+                            "a restore. [bold]pg_restore --clean[/bold] only drops "
+                            "objects listed in the backup's own table of contents, so "
+                            "anything already present in the target that the dump does "
+                            "not know about survives and can make the restore "
+                            "fail.[/info]"
+                        )
+                        clean_mode = questionary.select(
+                            "Clean mode",
+                            choices=[
+                                questionary.Choice(
+                                    "clean - pg_restore --clean --if-exists (default)",
+                                    value="clean",
+                                ),
+                                questionary.Choice(
+                                    "none - no pre-clean, restore into an empty database",
+                                    value="none",
+                                ),
+                                questionary.Choice(
+                                    "drop_schemas - drop every non-system schema CASCADE "
+                                    "(recommended, works on managed Postgres)",
+                                    value="drop_schemas",
+                                ),
+                                questionary.Choice(
+                                    "drop_database - DROP DATABASE + CREATE DATABASE "
+                                    "(full reset)",
+                                    value="drop_database",
+                                ),
+                            ],
+                            default="clean",
+                            style=questionary_style,
+                        ).ask()
+                        if clean_mode is None:
+                            raise typer.Exit()
+                        if clean_mode == "drop_database":
+                            console.print(
+                                "[warning]⚠ drop_database drops the whole target "
+                                "database before restoring. The user must have CREATEDB "
+                                "and own the database, or be a superuser. Most managed "
+                                "Postgres providers do not allow it.[/warning]"
+                            )
+
+                        pg_options = {}
                         if keep_ownership:
-                            ext_entry["options"] = {"keep_ownership": True}
+                            pg_options["keep_ownership"] = True
+                        if clean_mode != "clean":
+                            pg_options["clean_mode"] = clean_mode
+                        if pg_options:
+                            ext_entry["options"] = pg_options
 
                     add_db_to_json(path, ext_entry)
                 console.print("[success]✔ Added to config[/success]")
@@ -392,8 +441,57 @@ def agent(
 
                         if keep_ownership is None:
                             raise typer.Exit()
+
+                        console.print(
+                            "[info]ℹ Controls how the target database is cleaned before "
+                            "a restore. [bold]pg_restore --clean[/bold] only drops "
+                            "objects listed in the backup's own table of contents, so "
+                            "anything already present in the target that the dump does "
+                            "not know about survives and can make the restore "
+                            "fail.[/info]"
+                        )
+                        clean_mode = questionary.select(
+                            "Clean mode",
+                            choices=[
+                                questionary.Choice(
+                                    "clean - pg_restore --clean --if-exists (default)",
+                                    value="clean",
+                                ),
+                                questionary.Choice(
+                                    "none - no pre-clean, restore into an empty database",
+                                    value="none",
+                                ),
+                                questionary.Choice(
+                                    "drop_schemas - drop every non-system schema CASCADE "
+                                    "(recommended, works on managed Postgres)",
+                                    value="drop_schemas",
+                                ),
+                                questionary.Choice(
+                                    "drop_database - DROP DATABASE + CREATE DATABASE "
+                                    "(full reset)",
+                                    value="drop_database",
+                                ),
+                            ],
+                            default="clean",
+                            style=questionary_style,
+                        ).ask()
+                        if clean_mode is None:
+                            raise typer.Exit()
+                        if clean_mode == "drop_database":
+                            console.print(
+                                "[warning]⚠ drop_database drops the whole target "
+                                "database before restoring. The user must have CREATEDB "
+                                "and own the database, or be a superuser. Most managed "
+                                "Postgres providers do not allow it.[/warning]"
+                            )
+
+                        pg_options = {}
                         if keep_ownership:
-                            pg_entry["options"] = {"keep_ownership": True}
+                            pg_options["keep_ownership"] = True
+                        if clean_mode != "clean":
+                            pg_options["clean_mode"] = clean_mode
+                        if pg_options:
+                            pg_entry["options"] = pg_options
 
                     add_db_to_json(path, pg_entry)
 
