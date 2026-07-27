@@ -39,31 +39,6 @@
 
 </div>
 
-## Requirements
-
-Portabase runs your components with a container engine. Either of the following works:
-
-- **Docker** (with the `docker compose` plugin), or
-- **Podman** (with `podman compose` or the standalone `podman-compose`)
-
-The CLI auto-detects an available engine, **preferring Docker** when both are installed. To pin
-a specific engine, use `portabase config engine <docker|podman|auto>` or set the
-`PORTABASE_ENGINE` environment variable. Run `portabase config show` to see the active choice.
-
-> **Podman note:** the `docker-volume` database feature bind-mounts the container socket. For
-> rootless Podman, enable it with `systemctl --user enable --now podman.socket`.
-
-### Templates
-
-Component templates are fetched from a hosted URL. To use a different template host (air-gapped,
-private, or self-hosted setups), set the `PORTABASE_TEMPLATE_URL` environment variable:
-
-```bash
-export PORTABASE_TEMPLATE_URL="https://templates.example.com/portabase"
-```
-
-Templates are resolved as `<PORTABASE_TEMPLATE_URL>/<version>/<file>` (falling back to `latest`).
-
 ## Installation
 
 You can install Portabase CLI using bash with the following command:
