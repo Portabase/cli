@@ -20,6 +20,7 @@ from core.utils import (
     get_random_hint,
     print_banner,
     questionary_style,
+    slugify_project_name,
 )
 
 
@@ -38,7 +39,7 @@ def dashboard(
             raise typer.Exit()
 
     path.mkdir(parents=True, exist_ok=True)
-    project_name = name.lower().replace(" ", "-")
+    project_name = slugify_project_name(path.name)
 
     raw_template = fetch_template("dashboard.yml")
 

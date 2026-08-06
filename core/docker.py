@@ -1,6 +1,6 @@
 import subprocess
 import typer
-from core.utils import console
+from core.utils import console, slugify_project_name
 from pathlib import Path
 
 def ensure_network(name: str):
@@ -11,7 +11,7 @@ def ensure_network(name: str):
 
 def run_compose(cwd: Path, args: list):
     try:
-        project_name = cwd.name.lower().replace(" ", "_")
+        project_name = slugify_project_name(cwd.resolve().name)
         cmd = ["docker", "compose", "-p", project_name] + args
         subprocess.run(cmd, cwd=cwd, check=True)
     except subprocess.CalledProcessError:

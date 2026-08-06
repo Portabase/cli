@@ -3,7 +3,7 @@ import subprocess
 import shutil
 from pathlib import Path
 from rich.prompt import Confirm
-from core.utils import console, validate_work_dir, get_random_hint
+from core.utils import console, validate_work_dir, get_random_hint, slugify_project_name
 from core.docker import run_compose
 
 def start(path: Path = typer.Argument(..., help="Path to component folder")):
@@ -40,7 +40,7 @@ def logs(
     if follow:
         args.append("-f")
     try:
-        project_name = path.name.lower().replace(" ", "_")
+        project_name = slugify_project_name(path.name)
         subprocess.run(["docker", "compose", "-p", project_name] + args, cwd=path)
     except KeyboardInterrupt:
         pass
