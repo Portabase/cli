@@ -3,6 +3,7 @@ import binascii
 import json
 import platform
 import random
+import re
 import secrets
 import shutil
 import socket
@@ -88,6 +89,14 @@ def generate_password(length: int = 16) -> str:
     secrets.SystemRandom().shuffle(password)
 
     return "".join(password)
+
+
+def slugify_project_name(value: str, fallback: str = "portabase") -> str:
+    slug = re.sub(r"[^a-z0-9_-]+", "-", value.lower())
+    slug = slug.strip("-_")
+    slug = re.sub(r"^[^a-z0-9]+", "", slug)
+
+    return slug or fallback
 
 
 def get_random_hint():
