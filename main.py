@@ -2,7 +2,7 @@ from typing import Optional
 
 import typer
 
-from commands import agent, common, config, dashboard, db
+from commands import agent, common, config, dashboard, db, decrypt
 from core.updater import check_for_updates, update_cli
 from core.utils import console, current_version
 
@@ -77,6 +77,12 @@ app.command(
     rich_help_panel="Lifecycle",
     no_args_is_help=True,
 )(common.uninstall)
+
+app.command(
+    help="Decrypt Portabase .enc backup files (single file or folder).",
+    rich_help_panel="Configuration",
+    no_args_is_help=True,
+)(decrypt.decrypt)
 
 app.add_typer(db.app, name="db", rich_help_panel="Configuration")
 app.add_typer(config.app, name="config", rich_help_panel="Configuration")

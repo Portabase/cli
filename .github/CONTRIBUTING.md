@@ -11,11 +11,12 @@ Please take a moment to review this guide. It will help you understand how to co
 ## Table of Contents
 
 1. [How to Get Started](#how-to-get-started)
-2. [Reporting Issues](#reporting-issues)
-3. [Submitting Changes](#submitting-changes)
-4. [Code Style Guidelines](#code-style-guidelines)
-5. [Pull Request Process](#pull-request-process)
-6. [Community Guidelines](#community-guidelines)
+2. [Running the CLI (Development)](#running-the-cli-development)
+3. [Reporting Issues](#reporting-issues)
+4. [Submitting Changes](#submitting-changes)
+5. [Code Style Guidelines](#code-style-guidelines)
+6. [Pull Request Process](#pull-request-process)
+7. [Community Guidelines](#community-guidelines)
 
 ---
 
@@ -37,6 +38,135 @@ Please take a moment to review this guide. It will help you understand how to co
    ```bash
    git checkout -b feature/<feature-name>
    ```
+
+---
+
+## Running the CLI (Development)
+
+The project is a [Typer](https://typer.tiangolo.com/) CLI managed with
+[uv](https://docs.astral.sh/uv/). The entry point is `main.py`.
+
+### Set up the environment
+
+Install [uv](https://docs.astral.sh/uv/getting-started/installation/), then sync
+the dependencies (creates `.venv` and installs everything from `uv.lock`):
+
+```bash
+uv sync
+```
+
+### Run any command from source
+
+While developing, run the CLI through `uv run` instead of the installed
+`portabase` binary. The pattern is:
+
+```bash
+uv run python main.py <command> [ARGS] [OPTIONS]
+```
+
+Anything after `main.py` is a normal CLI invocation, so `portabase <command>`
+(once built/installed) and `uv run python main.py <command>` are equivalent.
+
+Show the top-level help and version:
+
+```bash
+uv run python main.py --help
+uv run python main.py --version
+```
+
+> Tip: append `--help` to any command to see its arguments, e.g.
+> `uv run python main.py agent --help`.
+
+### Creation commands
+
+Create an agent (interactive; flags pre-fill the prompts):
+
+```bash
+# name is required (creates a folder); everything else is optional
+uv run python main.py agent my-agent
+uv run python main.py agent my-agent --key <EDGE_KEY> --tz Europe/Paris --polling 10 --start
+```
+
+| Arg / Option | Default | Description |
+| --- | --- | --- |
+| `name` (arg) | — | Agent name; creates a folder of that name. |
+| `--key`, `-k` | prompt | Edge Key (Base64 or JSON). Prompted if omitted. |
+| `--tz` | `UTC` | Timezone. |
+| `--polling` | `5` | Polling frequency in seconds. |
+| `--start`, `-s` | off | Start the agent immediately after setup. |
+
+Create a dashboard:
+
+```bash
+uv run python main.py dashboard my-dashboard
+uv run python main.py dashboard my-dashboard --port 9000 --start
+```
+
+| Arg / Option | Default | Description |
+| --- | --- | --- |
+| `name` (arg) | — | Dashboard name; creates a folder of that name. |
+| `--port` | `8887` | Web port. |
+| `--start`, `-s` | off | Start the dashboard immediately after setup. |
+
+### Lifecycle commands
+
+Each takes the path to a component folder (the one created above):
+
+```bash
+uv run python main.py start my-agent
+uv run python main.py stop my-agent
+uv run python main.py restart my-agent
+uv run python main.py logs my-agent            # follows by default
+uv run python main.py logs my-agent --no-follow
+uv run python main.py uninstall my-agent       # prompts for confirmation
+uv run python main.py uninstall my-agent --force
+```
+
+| Command | Arg / Option | Description |
+| --- | --- | --- |
+| `start` / `stop` / `restart` | `path` (arg) | Path to the component folder. |
+| `logs` | `path` (arg), `--follow/--no-follow`, `-f` | Stream logs; follows unless `--no-follow`. |
+| `uninstall` | `path` (arg), `--force`, `-f` | Remove containers and data; `--force` skips the prompt. |
+
+### Configuration commands
+
+Decrypt Portabase `.enc` backup files (single file or a folder of `.enc` files):
+
+```bash
+# single file -> explicit output
+uv run python main.py decrypt backup.tar.gz.enc backup.tar.gz --key master_key.bin
+# folder -> decrypt every .enc into an output folder
+uv run python main.py decrypt ./backups ./restored --key master_key.bin
+# omit output to write next to the input; omit --key to use ./master_key.bin
+uv run python main.py decrypt backup.tar.gz.enc
+```
+
+| Arg / Option | Default | Description |
+| --- | --- | --- |
+| `input_path` (arg) | — | A `.enc` file, or a folder containing `.enc` files. |
+| `output_path` (arg) | input's directory | Output file or folder (must match the input type). |
+| `--key`, `-k` | `./master_key.bin` | Path to the master key file (raw 32-byte or Base64 AES-256 key). |
+
+Manage the configured databases of an agent:
+
+```bash
+uv run python main.py db list my-agent
+uv run python main.py db add my-agent
+uv run python main.py db remove my-agent
+```
+
+Manage global CLI configuration:
+
+```bash
+uv run python main.py config show
+uv run python main.py config channel stable   # or: beta
+```
+
+### System commands
+
+```bash
+uv run python main.py update
+```
 
 ---
 
