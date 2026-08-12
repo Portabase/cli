@@ -4,3 +4,7 @@ build/
 __pycache__/
 uv.lock
 *.spec
+
+.claude
+.codex/
+/docs
