@@ -73,6 +73,10 @@ class AgentCommand(Command):
         force: Annotated[
             bool, typer.Option("--force", "-f", help="Overwrite an existing folder")
         ] = False,
+        yes: Annotated[
+            bool,
+            typer.Option("--yes", "-y", help="Skip the configuration confirmation"),
+        ] = False,
     ) -> None:
         self.ui.banner()
         self.require_docker(self.docker)
@@ -106,6 +110,23 @@ class AgentCommand(Command):
             default=False,
             name="host_gateway",
         )
+
+        self.ui.summary(
+            [
+                ("Agent Name", name),
+                ("Path", str(path)),
+                ("Edge Key", env_vars["EDGE_KEY"]),
+                ("Timezone", env_vars["TZ"]),
+                ("Polling", f"{env_vars['POLLING']}s"),
+                ("Host Gateway", "Yes" if gateway else "No"),
+                ("Files to Create", "docker-compose.yml, .env, databases.json"),
+            ],
+            title="PROPOSED CONFIGURATION",
+        )
+        if not yes:
+            self.confirm_or_abort(
+                "Apply this configuration and generate files?", default=True
+            )
 
         project = AgentProject.create(path, env_vars, host_gateway=gateway)
         self._write(project)
