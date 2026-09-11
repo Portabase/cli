@@ -35,7 +35,8 @@ Hors périmètre de cette spec :
 | État d'une install | Aucun fichier d'état ajouté. Source de vérité = `.env` (variables runtime des conteneurs uniquement) + `databases.json` (contrat agent, inchangé) + lecture structurelle du compose existant pour le seul fait non dérivable (`host_gateway`). |
 | Compose | Artefact dérivé, propriété du CLI, re-rendu intégralement à chaque commande mutante. Personnalisations utilisateur via `docker-compose.override.yml` (mécanisme Compose natif). |
 | Templates | 100 % remote (S3), versionnés par version CLI exacte, manifest avec sha256, cache disque. Suppression du fallback `latest`. Source dans `templates/` à la racine du dépôt. |
-| Création multi-DB | `portabase agent` crée un agent sans base ; les bases s'ajoutent par `portabase db add` (un appel par base). Pas de DSL `--db engine:opts`. |
+| Création multi-DB | En non-interactif, `portabase agent` crée un agent sans base ; les bases s'ajoutent par `portabase db add` (un appel par base). En interactif, `agent` enchaîne sur une boucle « Add a database? » qui réutilise le même flux que `db add`. Pas de DSL `--db engine:opts`. |
+| Options moteur | Flag générique répétable `-o/--option KEY=VALUE`, validé contre `DbEngine.option_fields()`. Pas de flag Typer par option. |
 | Moteurs DB | Classes Python (`engines/`), registre à imports explicites. Pas de manifeste data-driven. |
 | Input UI | questionary uniquement. `rich.prompt` et `typer.prompt` bannis (ruff). |
 | Non-interactif | Flag `--non-interactive`, env `PORTABASE_NON_INTERACTIVE`, ou `stdin` non-TTY. Géré par `ui.Form`, pas par les commandes. |
@@ -60,7 +61,9 @@ cli/
 │   ├── lifecycle.py               # Start/Stop/Restart/Logs/Uninstall (ex-common.py)
 │   ├── db.py                      # DbCommands : add / remove / list
 │   ├── config.py                  # ConfigCommands : get / set
-│   └── update.py                  # UpdateCommand
+│   ├── update.py                  # UpdateCommand
+│   └── flows/
+│       └── add_database.py        # AddDatabaseFlow : collecte + application, partagé par agent et db add
 │
 ├── services/
 │   ├── project.py                 # AgentProject, DashboardProject, DatabaseSpec, detect_kind()
@@ -79,7 +82,8 @@ cli/
 │   ├── base.py                    # DbEngine ABC, Field
 │   ├── registry.py                # EngineRegistry
 │   ├── sql.py                     # StandardSqlEngine + Postgres/PostgresCluster/MySQL/MariaDB/MSSQL/Firebird
-│   ├── keyvalue.py                # KeyValueEngine + Redis/Valkey
+│   ├── redis.py                   # RedisEngine
+│   ├── valkey.py                  # ValkeyEngine
 │   ├── mongo.py                   # MongoEngine
 │   ├── sqlite.py                  # SqliteEngine
 │   └── docker_volume.py           # DockerVolumeEngine
@@ -155,9 +159,9 @@ Signatures Typer en `Annotated[...]`. Chaque option qui correspond à une questi
 
 | Commande | Options notables | Effet |
 |---|---|---|
-| `agent NAME` | `--key`, `--tz`, `--polling`, `--host-gateway/--no-host-gateway`, `--start`, `--force`, `--non-interactive` | crée le dossier, `.env`, `databases.json` vide, rend le compose. Ne crée aucune base. |
+| `agent NAME` | `--key`, `--tz`, `--polling`, `--host-gateway/--no-host-gateway`, `--start`, `--force`, `--non-interactive` | crée le dossier, `.env`, `databases.json` vide, rend le compose. En interactif, enchaîne sur une boucle « Add a database? » (`AddDatabaseFlow`, rendu après chaque ajout). En non-interactif, ne crée aucune base. |
 | `dashboard NAME` | `--port`, `--db-mode external\|internal\|custom`, `--db-host/--db-port/--db-name/--db-user/--db-password-stdin`, `--start`, `--force` | crée `.env`, rend le compose. |
-| `db add NAME` | `--engine`, `--mode new\|existing`, `--auth/--no-auth`, `--name`, `--host`, `--port`, `--database`, `--user`, `--password`, `--password-stdin`, `--path`, `--volume`, `--container`, `--label`, `--keep-ownership`, `--clean-mode` | collecte selon le moteur, mute `.env` + `databases.json`, re-rend. Flag fourni mais non pertinent pour le moteur/mode → `ValidationError`. |
+| `db add NAME` | `--engine`, `--mode new\|existing`, `--auth/--no-auth`, `--name`, `--host`, `--port`, `--database`, `--user`, `--password`, `--password-stdin`, `--path`, `--volume`, `--container`, `--label`, `-o/--option KEY=VALUE` (répétable) | collecte via `AddDatabaseFlow` selon le moteur, mute `.env` + `databases.json`, re-rend. Flag ou option fourni mais non pertinent pour le moteur/mode → `ValidationError`. |
 | `db remove NAME` | `--id` ou `--name`, `--purge-volume` | retire l'entrée, retire les variables `.env` du service, re-rend. Le volume Docker n'est supprimé que sur `--purge-volume`. |
 | `db list NAME` | — | lecture seule. |
 | `build PATH` | `--diff`, `--stdout`, `--inline-env`, `--output DIR` | re-rend depuis l'état. Sans option : écrit en place (= migration legacy). `--inline-env` substitue les valeurs au lieu de `${VAR}` avec avertissement secrets en clair. |
@@ -168,6 +172,31 @@ Signatures Typer en `Annotated[...]`. Chaque option qui correspond à une questi
 Options globales : `--verbose`, `--debug`, `--no-color`, `--non-interactive`. Détection `kind` d'un dossier : `databases.json` présent → agent ; `PROJECT_SECRET` dans `.env` → dashboard.
 
 Le choix `back` dans les selects disparaît : interactif = Ctrl-C (`UserAbort`) ou entrée "cancel" en fin de liste.
+
+### 4.3 `AddDatabaseFlow` (`commands/flows/add_database.py`)
+
+Le wizard d'ajout de base est un objet réutilisable, pas une commande. C'est la duplication actuelle entre `agent.py` et `db.py` qui disparaît.
+
+```python
+class AddDatabaseFlow:
+    def __init__(self, ui: UI, engines: EngineRegistry, ports: PortAllocator): ...
+
+    def collect(self, values: dict) -> DatabaseSpec:
+        """values = flags parsés (engine, mode, auth, host…, options).
+        Champ manquant → prompt (interactif) / défaut / ValidationError (non-interactif)."""
+
+    def apply(self, project: AgentProject, spec: DatabaseSpec) -> None:
+        """Mute project.env (variables du service si managed) et project.databases, en mémoire."""
+```
+
+Séquence de `collect` : moteur (`--engine` ou select) → affiche `engine.warning` s'il existe → mode (`--mode` ou select ; sqlite et docker-volume n'ont pas de mode `existing`/`new` au sens service : sqlite distingue fichier créé vs chemin existant, docker-volume n'a qu'un mode) → variante auth si `engine.auth_variants` → `Form.collect(engine.fields_new() | fields_existing(), values)` → `Form.collect(engine.option_fields(), values["options"])` → `engine.generate(...)` ou construction depuis les réponses.
+
+Utilisation :
+
+- `DbAddCommand.run` : `AgentProject.load` → `templates.ensure()` → `flow.collect(flags)` → `flow.apply` → `renderer.render_agent` → `write`.
+- `AgentCommand.run` (interactif seulement) : après le premier rendu, `while ui.confirm("Add a database?", default=True)` : `flow.collect({})` → `flow.apply` → rendu + écriture. Rendu après chaque ajout : un Ctrl-C au milieu laisse un état cohérent sur disque.
+
+`flows/` vit dans `commands/` parce qu'il prompte via `ui` ; il ne fait aucune I/O fichier (c'est `RenderResult.write` qui écrit).
 
 ## 5. État, templates, rendu
 
@@ -331,7 +360,7 @@ Différences attendues au premier rendu d'une install ancienne : `restart: unles
 class Field:
     name: str; prompt: str
     kind: Literal["text", "int", "secret", "bool", "choice"]
-    default: Any = None; choices: tuple[str, ...] = ()
+    default: Any = None; choices: tuple[str, ...] = (); help: str | None = None
     validator: Callable[[Any], Any] | None = None
 
 
@@ -348,22 +377,37 @@ class DbEngine(ABC):
     def env_vars(self, spec: DatabaseSpec) -> dict[str, str]: ...
     def template_ctx(self, spec: DatabaseSpec, inline: bool) -> dict: ...
     def agent_entry(self, spec: DatabaseSpec) -> dict: ...   # projection databases.json
+    def agent_database(self, spec: DatabaseSpec) -> str: ... # défaut : spec.database ; hook pour "0", chemin…
 ```
 
-Hiérarchie : `StandardSqlEngine` (postgresql, postgresql-cluster, mysql, mariadb, mssql, firebird), `KeyValueEngine` (redis, valkey), `MongoEngine`, `SqliteEngine`, `DockerVolumeEngine`. Les sous-classes ne surchargent que leurs particularités :
+Hiérarchie : `StandardSqlEngine` (postgresql, postgresql-cluster, mysql, mariadb, mssql, firebird), `RedisEngine`, `ValkeyEngine`, `MongoEngine`, `SqliteEngine`, `DockerVolumeEngine`. Redis et Valkey sont deux classes indépendantes dans deux fichiers, sans base commune (images, commandes et healthchecks divergent ; ce qu'elles partagent — `agent_database = "0"`, `auth_variants` — passe par les hooks de `DbEngine`). Les sous-classes ne surchargent que leurs particularités :
 
 | Moteur | Particularité |
 |---|---|
-| postgresql | `option_fields` : `keep_ownership` (bool), `clean_mode` (clean/none/drop_schemas/drop_database) |
+| postgresql | `option_fields` : `keep_ownership` (bool, défaut False), `clean_mode` (choice clean/none/drop_schemas/drop_database, défaut clean) |
 | postgresql-cluster | `warning` superuser ; pas d'options |
 | firebird | `agent_entry.name = "mirror.fdb"` ; var `_ROOT_PASS` |
 | mssql | `agent_entry.username = "sa"` |
-| redis, valkey | `agent_entry.database = "0"` ; `auth_variants = True` ; no-auth → `_PORT` seul |
+| redis | `agent_database = "0"` ; `auth_variants = True` ; no-auth → `_PORT` seul |
+| valkey | idem redis, classe et template distincts |
 | mongodb | `auth_variants = True` |
 | sqlite | `fields_new` : nom de fichier ; `fields_existing` : chemin ; pas de template ; mount si chemin relatif |
 | docker-volume | `fields` : volume, container (optionnel), label ; `warning` socket ; pas de template |
 
 `EngineRegistry` : dict `key → instance`, imports explicites (compatible PyInstaller). `get(key)` inconnu → `ValidationError` avec la liste des clés.
+
+### 6.1 Options moteur
+
+Certains moteurs exposent des options que l'agent lit dans `databases.json` (`options` : aujourd'hui `keep_ownership` et `clean_mode` pour PostgreSQL). Le système doit accepter de nouvelles options sans toucher à la signature Typer.
+
+- Déclaration : `DbEngine.option_fields() -> list[Field]`. Un `Field` comme les autres : nom, prompt, type, défaut, choix, validateur.
+- Saisie non-interactive : flag générique répétable `-o KEY=VALUE` / `--option KEY=VALUE` sur `db add`. Parsé en `dict[str, str]`, converti selon `Field.kind` (`bool` : `true/false/1/0/yes/no`, `int`, `choice` validé contre `choices`). Clé inconnue pour ce moteur → `ValidationError` listant les options valides.
+- Saisie interactive : `Form.collect(engine.option_fields(), values["options"])`, un prompt par option non fournie, avec le texte d'aide actuel (par exemple l'explication de `--no-owner` / `pg_restore --clean`) porté par `Field.help`.
+- Stockage : `DatabaseSpec.options: dict` (valeurs typées).
+- Projection : `agent_entry()` n'écrit dans `options` que les valeurs différentes du défaut. Comportement actuel conservé : `keep_ownership` absent si False, `clean_mode` absent si `clean`. Aucune clé `options` si vide.
+- Affichage : `db list` montre les options non-défaut ; `Summary` les inclut lors de l'ajout.
+
+Ajouter une option = une ligne dans `option_fields()` du moteur concerné.
 
 ## 7. `ui/`
 
