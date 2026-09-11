@@ -123,6 +123,9 @@ class ComposeRenderer:
             "edge_key_var": _var(env, "EDGE_KEY", inline),
             "log_level_var": _var(env, "LOG_LEVEL", inline),
             "polling_var": _var(env, "POLLING", inline),
+            "extra_env": [
+                (name, _var(env, name, inline)) for name in project.extra_env
+            ],
         }
         compose = self.header() + self._render("agent.yml.j2", ctx)
         databases = [

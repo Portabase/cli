@@ -68,6 +68,7 @@ Distributed under the Apache License. See `LICENSE.txt` for more details.
 
 ```
 portabase agent create NAME            create an agent folder
+portabase agent show|set|unset NAME
 portabase agent db add|remove|list NAME
 portabase dashboard create NAME        create a dashboard folder
 portabase dashboard show|set|unset NAME

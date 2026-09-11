@@ -1,16 +1,24 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 
 import typer
 
 from commands.base import Command, CommandGroup
 from commands.db import DbCommands, report_write
 from commands.flows.add_database import AddDatabaseFlow
-from core.errors import ValidationError
-from core.utils import validate_edge_key
+from commands.settings import (
+    SetCommand,
+    UnsetCommand,
+    apply_settings,
+    display,
+    read_secret_flags,
+    show_settings,
+    with_settings_flags,
+)
 from engines import EngineRegistry
+from services import settings as cfg
 from services.docker import DockerRunner
 from services.ports import PortAllocator
 from services.project import AgentProject
@@ -22,17 +30,8 @@ from ui import UI
 NETWORK = "portabase_network"
 
 
-def _edge_key(value: str) -> str:
-    if not validate_edge_key(value):
-        raise ValidationError(
-            "Invalid Edge Key.",
-            hint="Expected Base64 or JSON with serverUrl, agentId, masterKeyB64.",
-        )
-    return value
-
-
 class AgentCreateCommand(Command):
-    name, help, panel = "create", "Create a new Portabase Agent instance.", "Creation"
+    name, help, panel = "create", "Create a new Portabase Agent instance.", "Components"
     no_args_is_help = True
 
     def __init__(
@@ -52,21 +51,14 @@ class AgentCreateCommand(Command):
         self.engines = engines
         self.ports = ports
 
+    def register(self, app: typer.Typer) -> None:
+        app.command(
+            self.name, help=self.help, rich_help_panel=self.panel, no_args_is_help=True
+        )(self._traced(with_settings_flags(self.run, cfg.AGENT)))
+
     def run(
         self,
         name: Annotated[str, typer.Argument(help="Agent name (creates a folder)")],
-        key: Annotated[str | None, typer.Option("--key", "-k", help="Edge Key")] = None,
-        tz: Annotated[str | None, typer.Option("--tz", help="Timezone")] = None,
-        polling: Annotated[
-            int | None, typer.Option("--polling", help="Polling frequency in seconds")
-        ] = None,
-        host_gateway: Annotated[
-            bool | None,
-            typer.Option(
-                "--host-gateway/--no-host-gateway",
-                help="Map localhost to host-gateway",
-            ),
-        ] = None,
         start: Annotated[
             bool, typer.Option("--start", "-s", help="Start immediately")
         ] = False,
@@ -77,6 +69,7 @@ class AgentCreateCommand(Command):
             bool,
             typer.Option("--yes", "-y", help="Skip the configuration confirmation"),
         ] = False,
+        **settings: Any,
     ) -> None:
         self.ui.banner()
         self.require_docker(self.docker)
@@ -88,47 +81,33 @@ class AgentCreateCommand(Command):
             self.ui.warning(f"Directory '{name}' already exists.")
             self.confirm_or_abort("Overwrite?", default=False)
 
+        provided = read_secret_flags(cfg.AGENT, settings)
         form = self.ui.form()
-        env_vars = {
-            "EDGE_KEY": form.text(
-                "Edge Key", value=key, validator=_edge_key, name="key"
-            ),
-            "TZ": form.text("Timezone", value=tz, default="UTC", name="tz"),
-            "POLLING": str(
-                form.integer(
-                    "Polling frequency (seconds)",
-                    value=polling,
-                    default=5,
-                    name="polling",
-                )
-            ),
-            "LOG_LEVEL": "info",
+        answers = {
+            s.name: form.ask(s.field, provided.get(s.name)) for s in cfg.AGENT if s.core
         }
-        gateway = form.confirm(
-            "Add extra_hosts mapping (localhost -> host-gateway)?",
-            value=host_gateway,
-            default=False,
-            name="host_gateway",
-        )
+        env_vars = {
+            s.env: s.to_env(answers[s.name]) for s in cfg.AGENT if s.core and s.env
+        }
+        gateway = bool(answers["host_gateway"])
 
-        self.ui.summary(
-            [
-                ("Agent Name", name),
-                ("Path", str(path)),
-                ("Edge Key", env_vars["EDGE_KEY"]),
-                ("Timezone", env_vars["TZ"]),
-                ("Polling", f"{env_vars['POLLING']}s"),
-                ("Host Gateway", "Yes" if gateway else "No"),
-                ("Files to Create", "docker-compose.yml, .env, databases.json"),
-            ],
-            title="SUMMARY",
-        )
+        rows = [("Agent Name", name), ("Path", str(path))]
+        rows += [
+            (s.field.prompt, display(s, answers[s.name])) for s in cfg.AGENT if s.core
+        ]
+        rows.append(("Files to Create", "docker-compose.yml, .env, databases.json"))
+        self.ui.summary(rows, title="SUMMARY")
         if not yes:
             self.confirm_or_abort(
                 "Apply this configuration and generate files?", default=True
             )
 
         project = AgentProject.create(path, env_vars, host_gateway=gateway)
+        apply_settings(
+            self.ui,
+            project,
+            {k: v for k, v in provided.items() if not cfg.AGENT.get(k).core},
+        )
         self._write(project)
         self.ui.success(f"Agent '{name}' created in {path}")
 
@@ -166,6 +145,27 @@ class AgentCreateCommand(Command):
         report_write(self.ui, report)
 
 
+class AgentShowCommand(Command):
+    name, help, panel = "show", "Show an agent's settings and databases.", "Components"
+    no_args_is_help = True
+
+    def __init__(self, ui: UI, telemetry: Telemetry, engines: EngineRegistry) -> None:
+        super().__init__(ui, telemetry)
+        self.engines = engines
+
+    def run(self, path: Annotated[Path, typer.Argument(help="Agent folder")]) -> None:
+        project = AgentProject.load(self.require_project_dir(path))
+        show_settings(self.ui, project)
+        if project.databases:
+            rows = [
+                [d.name, d.engine, self.engines.get(d.engine).describe(d)]
+                for d in project.databases
+            ]
+            self.ui.table(["Name", "Engine", "Where"], rows, title="DATABASES")
+        else:
+            self.ui.hint("No database yet: portabase agent db add")
+
+
 class AgentCommands(CommandGroup):
     name, help, panel = "agent", "Create and manage Portabase agents.", "Components"
 
@@ -183,11 +183,24 @@ class AgentCommands(CommandGroup):
         self._create = AgentCreateCommand(
             ui, telemetry, docker, templates, renderer, engines, ports
         )
+        self._templates, self._renderer, self._engines = templates, renderer, engines
         self.db = DbCommands(ui, telemetry, engines, ports, templates, renderer, docker)
 
     @property
     def commands(self) -> list[Command]:
-        return [self._create]
+        shared = (
+            self.ui,
+            self.telemetry,
+            self._templates,
+            AgentProject.load,
+            self._renderer.render_agent,
+        )
+        return [
+            self._create,
+            AgentShowCommand(self.ui, self.telemetry, self._engines),
+            SetCommand(*shared),
+            UnsetCommand(*shared),
+        ]
 
     @property
     def groups(self) -> list[CommandGroup]:

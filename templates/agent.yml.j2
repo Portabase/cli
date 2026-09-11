@@ -19,6 +19,9 @@ services:
       EDGE_KEY: "{{ edge_key_var }}"
       LOG_LEVEL: "{{ log_level_var }}"
       POLLING: "{{ polling_var }}"
+{%- for name, value in extra_env %}
+      {{ name }}: "{{ value }}"
+{%- endfor %}
     networks:
       - portabase
 {% for s in services %}

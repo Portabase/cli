@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import inspect
 import secrets
 import sys
 from pathlib import Path
@@ -12,9 +11,17 @@ import typer
 from commands.base import Command, CommandGroup
 from commands.dashboard_auth import DashboardAuthCommands
 from commands.db import report_write
-from core.errors import ValidationError
+from commands.settings import (
+    SetCommand,
+    UnsetCommand,
+    apply_settings,
+    display,
+    read_secret_flags,
+    show_settings,
+    with_settings_flags,
+)
 from core.utils import generate_password, slugify_project_name
-from services import dashboard_settings as ds
+from services import settings as cfg
 from services.docker import DockerRunner
 from services.envfile import EnvFile
 from services.ports import PortAllocator
@@ -32,64 +39,6 @@ MODE_LABELS = {
     "custom": "Custom/Existing Database",
 }
 PathArg = Annotated[Path, typer.Argument(help="Dashboard folder")]
-
-
-def _flag(name: str) -> str:
-    return "--" + name.replace("_", "-")
-
-
-def settings_parameters() -> list[inspect.Parameter]:
-    params: list[inspect.Parameter] = []
-    for setting in ds.SETTINGS:
-        field = setting.field
-        flag = _flag(setting.name)
-        if field.kind == "bool":
-            ann: Any = Annotated[
-                bool | None, typer.Option(f"{flag}/--no-{flag[2:]}", help=field.prompt)
-            ]
-        else:
-            note = " (prefer the -stdin variant)" if setting.secret else ""
-            ann = Annotated[str | None, typer.Option(flag, help=field.prompt + note)]
-        params.append(
-            inspect.Parameter(
-                setting.name,
-                inspect.Parameter.KEYWORD_ONLY,
-                default=None,
-                annotation=ann,
-            )
-        )
-        if setting.secret:
-            params.append(
-                inspect.Parameter(
-                    f"{setting.name}_stdin",
-                    inspect.Parameter.KEYWORD_ONLY,
-                    default=False,
-                    annotation=Annotated[
-                        bool,
-                        typer.Option(
-                            f"{flag}-stdin",
-                            help=f"Read {field.prompt.lower()} from stdin",
-                        ),
-                    ],
-                )
-            )
-    return params
-
-
-def read_secret_flags(values: dict[str, Any]) -> dict[str, Any]:
-    out = dict(values)
-    for setting in ds.SETTINGS:
-        if setting.secret and out.pop(f"{setting.name}_stdin", False):
-            out[setting.name] = sys.stdin.readline().rstrip("\n")
-    return out
-
-
-def display(name: str, value: Any) -> str:
-    if ds.get(name).secret:
-        return "••••••••"
-    if isinstance(value, bool):
-        return "Yes" if value else "No"
-    return str(value)
 
 
 class _DashboardCommand(Command):
@@ -118,33 +67,14 @@ class _DashboardCommand(Command):
             report = result.write(project.path)
         report_write(self.ui, report)
 
-    def apply_settings(self, project: DashboardProject, values: dict[str, Any]) -> None:
-        form = self.ui.form()
-        for name, raw in values.items():
-            if raw is not None:
-                project.set(name, form.ask(ds.get(name).field, raw))
-
 
 class DashboardCreateCommand(_DashboardCommand):
     name, help = "create", "Create a new Portabase Dashboard instance."
 
     def register(self, app: typer.Typer) -> None:
-        def entry(*args: Any, **kwargs: Any) -> None:
-            self.run(*args, **kwargs)
-
-        static = [
-            p
-            for p in inspect.signature(self.run, eval_str=True).parameters.values()
-            if p.kind is not inspect.Parameter.VAR_KEYWORD
-        ]
-        signature = inspect.Signature(static + settings_parameters())
-        entry.__signature__ = signature  # type: ignore[attr-defined]
-        entry.__annotations__ = {
-            name: param.annotation for name, param in signature.parameters.items()
-        }
         app.command(
             self.name, help=self.help, rich_help_panel=self.panel, no_args_is_help=True
-        )(self._traced(entry))
+        )(self._traced(with_settings_flags(self.run, cfg.DASHBOARD)))
 
     def run(
         self,
@@ -247,8 +177,8 @@ class DashboardCreateCommand(_DashboardCommand):
         env.merge(env_vars)
         project = DashboardProject(path, env)
 
-        provided = read_secret_flags(settings)
-        self.apply_settings(project, provided)
+        provided = read_secret_flags(cfg.DASHBOARD, settings)
+        apply_settings(self.ui, project, provided)
         explicit = any(v is not None for v in provided.values())
         if (
             not self.ui.non_interactive
@@ -261,9 +191,9 @@ class DashboardCreateCommand(_DashboardCommand):
 
         rows.append(("Access URL", project.setting("url")))
         rows += [
-            (ds.get(k).field.prompt, display(k, v))
-            for k, v in project.settings().items()
-            if k != "url" and project.env.get(ds.get(k).env) is not None
+            (s.field.prompt, display(s, project.setting(s.name)))
+            for s in cfg.DASHBOARD
+            if s.name != "url" and project.env.get(s.env or "") is not None
         ]
         rows.append(("Files to Create", "docker-compose.yml, .env"))
         self.ui.summary(rows, title="SUMMARY")
@@ -290,15 +220,15 @@ class DashboardCreateCommand(_DashboardCommand):
             self.ui.info(f"Run: portabase start {name}")
 
     def _wizard(self, form: Form, project: DashboardProject) -> None:
-        for section, names in ds.WIZARD_SECTIONS:
-            self.ui.section(ds.SECTION_TITLES[section])
+        for section, names in cfg.DASHBOARD_WIZARD:
+            self.ui.section(cfg.DASHBOARD.sections[section])
             for setting_name in names:
                 needs_account = (
                     section == "onboarding" and setting_name != "skip_onboarding"
                 )
                 if needs_account and not project.setting("skip_onboarding"):
                     continue
-                setting = ds.get(setting_name)
+                setting = cfg.DASHBOARD.get(setting_name)
                 value = form.ask(setting.field)
                 if value != setting.field.default or needs_account:
                     project.set(setting_name, value)
@@ -326,15 +256,7 @@ class DashboardShowCommand(_DashboardCommand):
 
     def run(self, path: PathArg) -> None:
         project = DashboardProject.load(self.require_project_dir(path))
-        values = project.settings()
-        for section, title in ds.SECTION_TITLES.items():
-            rows = [
-                (s.field.prompt, display(s.name, values[s.name]))
-                for s in ds.SETTINGS
-                if s.section == section and values[s.name] not in (None, "")
-            ]
-            if rows:
-                self.ui.summary(rows, title=title.upper())
+        show_settings(self.ui, project)
         providers = project.providers
         if providers:
             self.ui.table(
@@ -352,51 +274,8 @@ class DashboardShowCommand(_DashboardCommand):
                 title="LOGIN PROVIDERS",
             )
         else:
-            state = "enabled." if values["password_auth"] else "disabled!"
+            state = "enabled." if project.setting("password_auth") else "disabled!"
             self.ui.hint(f"No login provider. Password login is {state}")
-
-
-class DashboardSetCommand(_DashboardCommand):
-    name, help = "set", "Change dashboard settings: KEY VALUE [KEY VALUE ...]."
-
-    def run(
-        self,
-        path: PathArg,
-        pairs: Annotated[
-            list[str],
-            typer.Argument(help="KEY VALUE pairs; keys as in 'dashboard show'"),
-        ],
-    ) -> None:
-        if len(pairs) % 2:
-            raise ValidationError(
-                "Expected KEY VALUE pairs.", hint="Known keys: " + ", ".join(ds.BY_NAME)
-            )
-        project_path = self.require_project_dir(path)
-        self.templates.resolve()
-        project = DashboardProject.load(project_path)
-        self.apply_settings(project, dict(zip(pairs[::2], pairs[1::2], strict=True)))
-        self.write(project)
-        for key in pairs[::2]:
-            self.ui.success(f"{key} = {display(key, project.setting(key))}")
-        self.ui.info(f"Apply with: portabase restart {project_path.name}")
-
-
-class DashboardUnsetCommand(_DashboardCommand):
-    name, help = "unset", "Reset dashboard settings to their default: KEY [KEY ...]."
-
-    def run(
-        self,
-        path: PathArg,
-        keys: Annotated[list[str], typer.Argument(help="Setting keys")],
-    ) -> None:
-        project_path = self.require_project_dir(path)
-        self.templates.resolve()
-        project = DashboardProject.load(project_path)
-        for key in keys:
-            project.unset(key)
-        self.write(project)
-        self.ui.success("Reset: " + ", ".join(keys))
-        self.ui.info(f"Apply with: portabase restart {project_path.name}")
 
 
 class DashboardCommands(CommandGroup):
@@ -421,11 +300,19 @@ class DashboardCommands(CommandGroup):
 
     @property
     def commands(self) -> list[Command]:
+        ui, telemetry, _docker, templates, renderer, _ports = self._deps
+        shared = (
+            ui,
+            telemetry,
+            templates,
+            DashboardProject.load,
+            renderer.render_dashboard,
+        )
         return [
             DashboardCreateCommand(*self._deps),
             DashboardShowCommand(*self._deps),
-            DashboardSetCommand(*self._deps),
-            DashboardUnsetCommand(*self._deps),
+            SetCommand(*shared),
+            UnsetCommand(*shared),
         ]
 
     @property

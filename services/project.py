@@ -9,7 +9,8 @@ from core.errors import ConfigError, ValidationError
 from core.specs import DatabaseSpec
 from engines.base import DbEngine
 from engines.sqlite import SqliteEngine
-from services import dashboard_settings as ds
+from services import auth_providers as ap
+from services import settings as cfg
 from services.compose_facts import ComposeFacts
 from services.envfile import EnvFile
 
@@ -142,6 +143,38 @@ class AgentProject:
         if spec.managed and spec.host:
             self.env.remove_prefix(spec.env_prefix)
 
+    registry = cfg.AGENT
+
+    def setting(self, name: str) -> Any:
+        setting = self.registry.get(name)
+        if setting.env is None:
+            return getattr(self, name)
+        return setting.from_env(self.env.get(setting.env))
+
+    def settings(self) -> dict[str, Any]:
+        return {s.name: self.setting(s.name) for s in self.registry}
+
+    def set(self, name: str, value: Any) -> None:
+        setting = self.registry.get(name)
+        if setting.env is None:
+            setattr(self, name, value)
+        else:
+            self.env.set(setting.env, setting.to_env(value))
+
+    def unset(self, name: str) -> None:
+        setting = self.registry.get(name)
+        if setting.core:
+            raise ValidationError(f"'{name}' is required and cannot be unset.")
+        self.env.remove(setting.env or "")
+
+    @property
+    def extra_env(self) -> list[str]:
+        return [
+            s.env
+            for s in self.registry
+            if s.env and not s.core and self.env.get(s.env) is not None
+        ]
+
     def find(self, id_or_name: str) -> DatabaseSpec:
         matches = [
             d
@@ -197,19 +230,21 @@ class DashboardProject:
     def project_name(self) -> str:
         return self.env.get("PROJECT_NAME") or self.path.name
 
+    registry = cfg.DASHBOARD
+
     def setting(self, name: str) -> Any:
-        setting = ds.get(name)
-        return ds.from_env(setting, self.env.get(setting.env))
+        setting = self.registry.get(name)
+        return setting.from_env(self.env.get(setting.env or ""))
 
     def settings(self) -> dict[str, Any]:
-        return {s.name: ds.from_env(s, self.env.get(s.env)) for s in ds.SETTINGS}
+        return {s.name: self.setting(s.name) for s in self.registry}
 
     def set(self, name: str, value: Any) -> None:
-        setting = ds.get(name)
-        self.env.set(setting.env, ds.to_env(setting, value))
+        setting = self.registry.get(name)
+        self.env.set(setting.env or "", setting.to_env(value))
 
     def unset(self, name: str) -> None:
-        self.env.remove(ds.get(name).env)
+        self.env.remove(self.registry.get(name).env or "")
 
     @property
     def providers(self) -> list[AuthProvider]:
@@ -223,7 +258,7 @@ class DashboardProject:
                 if not key.startswith(prefix):
                     continue
                 rest = key[len(prefix) :]
-                env_map = ds.OIDC_ENV if kind == "oidc" else ds.OAUTH_ENV
+                env_map = ap.OIDC_ENV if kind == "oidc" else ap.OAUTH_ENV
                 for field_name, suffix in env_map.items():
                     if rest.endswith("_" + suffix):
                         slug = rest[: -len(suffix) - 1]
@@ -244,8 +279,8 @@ class DashboardProject:
                 f"A provider named '{provider.id}' already exists.",
                 hint="Remove it first: portabase dashboard auth remove",
             )
-        prefix = ds.provider_prefix(provider.kind, provider.id)
-        env_map = ds.OIDC_ENV if provider.kind == "oidc" else ds.OAUTH_ENV
+        prefix = ap.provider_prefix(provider.kind, provider.id)
+        env_map = ap.OIDC_ENV if provider.kind == "oidc" else ap.OAUTH_ENV
         if provider.kind == "oidc":
             self.env.set(f"{prefix}_ID", provider.id)
         for field_name, value in provider.values.items():
@@ -261,7 +296,7 @@ class DashboardProject:
                 f"No provider named '{provider_id}'.",
                 hint="See: portabase dashboard auth list",
             )
-        self.env.remove_prefix(ds.provider_prefix(match.kind, match.id))
+        self.env.remove_prefix(ap.provider_prefix(match.kind, match.id))
         return match
 
     def callback_url(self, provider_id: str) -> str:

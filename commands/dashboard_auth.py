@@ -9,7 +9,7 @@ import typer
 from commands.base import Command, CommandGroup
 from commands.db import report_write
 from core.errors import ValidationError
-from services import dashboard_settings as ds
+from services import auth_providers as ap
 from services.docker import DockerRunner
 from services.ports import PortAllocator
 from services.project import AuthProvider, DashboardProject, ProviderKind
@@ -96,7 +96,7 @@ class AuthAddCommand(_AuthCommand):
     ) -> None:
         if kind not in KINDS:
             raise ValidationError(f"Unknown kind '{kind}'.", hint="Use oidc or oauth.")
-        pid = ds.validate_provider_id(kind, provider_id)
+        pid = ap.validate_provider_id(kind, provider_id)
         if secret_stdin:
             secret = sys.stdin.readline().rstrip("\n")
         elif secret is not None:
@@ -113,7 +113,7 @@ class AuthAddCommand(_AuthCommand):
             "pkce": pkce,
             "host": host,
         }
-        fields = ds.OIDC_FIELDS if kind == "oidc" else ds.OAUTH_FIELDS
+        fields = ap.OIDC_FIELDS if kind == "oidc" else ap.OAUTH_FIELDS
         allowed = {f.name for f in fields}
         stray = sorted(
             k for k, v in values.items() if v is not None and k not in allowed
