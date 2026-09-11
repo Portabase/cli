@@ -1,91 +1,215 @@
-from typing import Optional
+import os
+import platform
+import sys
+from dataclasses import dataclass
+from typing import Annotated
 
+import click
 import typer
 
-from commands import agent, common, config, dashboard, db, decrypt
-from core.updater import check_for_updates, update_cli
-from core.utils import console, current_version
-
-app = typer.Typer(
-    no_args_is_help=True,
-    add_completion=False,
+from commands.agent import AgentCommand
+from commands.build import BuildCommand
+from commands.config import ConfigCommands
+from commands.dashboard import DashboardCommand
+from commands.db import DbCommands
+from commands.decrypt import DecryptCommand
+from commands.lifecycle import (
+    LogsCommand,
+    RestartCommand,
+    StartCommand,
+    StopCommand,
+    UninstallCommand,
 )
+from commands.update import UpdateCommand
+from core.config import GlobalConfig
+from core.errors import PortabaseError, UserAbort, ValidationError
+from core.version import current_version
+from engines import registry as engine_registry
+from services.docker import DockerRunner
+from services.http import HttpClient
+from services.ports import PortAllocator
+from services.renderer import ComposeRenderer
+from services.telemetry import NoopTelemetry, Telemetry
+from services.templates import TemplateRepository
+from services.updater import UpdateChecker, Updater, is_frozen
+from ui import UI
 
 
-def version_callback(value: bool):
-    if value:
-        console.print(f"Portabase CLI version: {current_version()}")
-        check_for_updates(force=True)
-        raise typer.Exit()
+@dataclass
+class Settings:
+    non_interactive: bool = False
+    verbose: bool = False
+    no_color: bool = False
+
+    @classmethod
+    def from_env(cls, argv: list[str]) -> "Settings":
+        env_flag = os.environ.get("PORTABASE_NON_INTERACTIVE", "").lower()
+        settings = cls(
+            non_interactive=env_flag in ("1", "true", "yes") or not sys.stdin.isatty(),
+            no_color=bool(os.environ.get("NO_COLOR")) or "--no-color" in argv,
+        )
+        if settings.no_color:
+            # Typer renders --help with its own Rich console, which only honors
+            # the NO_COLOR convention; --help is handled before any callback runs.
+            os.environ["NO_COLOR"] = "1"
+        return settings
 
 
-@app.callback()
-def main(
-    ctx: typer.Context,
-    _: Optional[bool] = typer.Option(
-        None,
-        "--version",
-        help="Show the version and exit.",
-        callback=version_callback,
-        is_eager=True,
-    ),
-):
-    """
-    Portabase CLI to manage agents, dashboards and databases.
-    """
-    if ctx.invoked_subcommand != "update":
-        check_for_updates()
+def build_app(
+    ui: UI, telemetry: Telemetry, config: GlobalConfig, settings: Settings
+) -> tuple[typer.Typer, UpdateChecker]:
+    app = typer.Typer(
+        no_args_is_help=True, add_completion=False, rich_markup_mode="rich"
+    )
+    http = HttpClient()
+    docker = DockerRunner()
+    version = current_version()
+    checker = UpdateChecker(http, config, version)
+    updater = Updater(http, version)
+    templates = TemplateRepository.bundled()
+    ports = PortAllocator()
+    renderer = ComposeRenderer(templates, engine_registry, version)
+
+    def version_callback(value: bool) -> None:
+        if value:
+            ui.print(f"Portabase CLI version: {version}")
+            latest = checker.available(force=True)
+            if latest:
+                ui.warning(f"A new version is available: [bold]{latest}[/bold]")
+            raise typer.Exit()
+
+    @app.callback(
+        help="Portabase CLI to manage agents, dashboards and databases.",
+        invoke_without_command=True,
+    )
+    def root(
+        ctx: typer.Context,
+        _version: Annotated[
+            bool | None,
+            typer.Option(
+                "--version",
+                help="Show the version and exit.",
+                callback=version_callback,
+                is_eager=True,
+            ),
+        ] = None,
+        verbose: Annotated[
+            bool, typer.Option("--verbose", help="Show error causes and tracebacks.")
+        ] = False,
+        no_color: Annotated[
+            bool, typer.Option("--no-color", help="Disable colors.")
+        ] = False,
+        non_interactive: Annotated[
+            bool,
+            typer.Option(
+                "--non-interactive",
+                envvar="PORTABASE_NON_INTERACTIVE",
+                help="Never prompt; fail on missing input.",
+            ),
+        ] = False,
+    ) -> None:
+        settings.verbose = verbose
+        settings.no_color = settings.no_color or no_color
+        settings.non_interactive = settings.non_interactive or non_interactive
+        ui.configure(
+            verbose=settings.verbose,
+            no_color=settings.no_color,
+            non_interactive=settings.non_interactive,
+        )
+        if ctx.invoked_subcommand is None:
+            ui.out(ctx.get_help() + "\n")
+            raise typer.Exit()
+
+    commands = [
+        AgentCommand(
+            ui, telemetry, docker, templates, renderer, engine_registry, ports
+        ),
+        DashboardCommand(ui, telemetry, docker, templates, renderer, ports),
+        StartCommand(ui, telemetry, docker),
+        StopCommand(ui, telemetry, docker),
+        RestartCommand(ui, telemetry, docker),
+        LogsCommand(ui, telemetry, docker),
+        UninstallCommand(ui, telemetry, docker),
+        BuildCommand(ui, telemetry, templates, renderer),
+        DecryptCommand(ui, telemetry),
+        UpdateCommand(ui, telemetry, checker, updater),
+    ]
+    for cmd in commands:
+        cmd.register(app)
+
+    DbCommands(
+        ui, telemetry, engine_registry, ports, templates, renderer, docker
+    ).register(app)
+    ConfigCommands(ui, telemetry, config).register(app)
+    return app, checker
 
 
-@app.command(help="Update the CLI to the latest version.", rich_help_panel="System")
-def update():
-    update_cli()
+def _notify_update(
+    ui: UI, checker: UpdateChecker, settings: Settings, invoked: str | None
+) -> None:
+    if not is_frozen() or settings.non_interactive or invoked in ("update", None):
+        return
+    if "--stdout" in sys.argv:
+        return
+    latest = checker.available()
+    if latest:
+        ui.print("")
+        ui.warning(
+            f"A new version of Portabase CLI is available: [bold]{latest}[/bold] "
+            f"(current: {checker.current})"
+        )
+        ui.info("Run [bold]portabase update[/bold] to update.")
 
 
-app.command(
-    help="Create a new Portabase Agent instance.",
-    rich_help_panel="Creation",
-    no_args_is_help=True,
-)(agent.agent)
-app.command(
-    help="Create a new Portabase Dashboard instance.",
-    rich_help_panel="Creation",
-    no_args_is_help=True,
-)(dashboard.dashboard)
-app.command(
-    help="Start a Portabase component.",
-    rich_help_panel="Lifecycle",
-    no_args_is_help=True,
-)(common.start)
-app.command(
-    help="Stop a Portabase component.",
-    rich_help_panel="Lifecycle",
-    no_args_is_help=True,
-)(common.stop)
-app.command(
-    help="Restart a Portabase component.",
-    rich_help_panel="Lifecycle",
-    no_args_is_help=True,
-)(common.restart)
-app.command(
-    help="View logs of a Portabase component.",
-    rich_help_panel="Lifecycle",
-    no_args_is_help=True,
-)(common.logs)
-app.command(
-    help="Uninstall and delete a Portabase component.",
-    rich_help_panel="Lifecycle",
-    no_args_is_help=True,
-)(common.uninstall)
+def main() -> None:
+    settings = Settings.from_env(sys.argv[1:])
+    config = GlobalConfig()
+    ui = UI(non_interactive=settings.non_interactive, no_color=settings.no_color)
+    telemetry = NoopTelemetry()
+    app, checker = build_app(ui, telemetry, config, settings)
+    invoked = next((a for a in sys.argv[1:] if not a.startswith("-")), None)
+    exit_code = 0
 
-app.command(
-    help="Decrypt Portabase .enc backup files (single file or folder).",
-    rich_help_panel="Configuration",
-    no_args_is_help=True,
-)(decrypt.decrypt)
+    try:
+        with telemetry.session(cli_version=current_version(), os=platform.system()):
+            result = app(standalone_mode=False)
+            if isinstance(result, int):
+                exit_code = result
+    except UserAbort as e:
+        ui.warning(e.message)
+        telemetry.event("abort")
+        exit_code = e.exit_code
+    except PortabaseError as e:
+        ui.error(e)
+        telemetry.error(e)
+        exit_code = e.exit_code
+    except click.exceptions.NoArgsIsHelpError:
+        exit_code = 0
+    except click.exceptions.Exit as e:
+        exit_code = e.exit_code
+    except click.UsageError as e:
+        err = ValidationError(
+            e.format_message(), hint="Run 'portabase --help' for usage."
+        )
+        ui.error(err)
+        telemetry.error(err)
+        exit_code = err.exit_code
+    except KeyboardInterrupt:
+        ui.print("")
+        ui.warning("Canceled.")
+        exit_code = 130
+    except Exception as e:  # noqa: BLE001 — last resort: a bug, not an expected error
+        wrapped = PortabaseError("Unexpected error: " + str(e), cause=e)
+        ui.error(wrapped, unexpected=True)
+        telemetry.error(e, unexpected=True)
+        exit_code = 1
+    finally:
+        telemetry.flush()
 
-app.add_typer(db.app, name="db", rich_help_panel="Configuration")
-app.add_typer(config.app, name="config", rich_help_panel="Configuration")
+    if exit_code == 0:
+        _notify_update(ui, checker, settings, invoked)
+    raise SystemExit(exit_code)
+
 
 if __name__ == "__main__":
-    app()
+    main()

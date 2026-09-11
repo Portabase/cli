@@ -1,0 +1,52 @@
+name: {{ project_name_var }}
+services:
+  portabase:
+    container_name: {{ project_name_var }}-app
+    image: portabase/portabase:latest
+    restart: unless-stopped
+    env_file:
+      - .env
+    ports:
+      - "{{ host_port_var }}:80"
+    environment:
+      - TZ={{ tz_var }}
+      - LOG_LEVEL={{ log_level_var }}
+      - PROJECT_SECRET={{ project_secret_var }}
+      - PROJECT_URL={{ project_url_var }}
+    volumes:
+      - portabase-data:/data
+{%- if db_mode == "external" %}
+    depends_on:
+      db:
+        condition: service_healthy
+{%- endif %}
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+{%- if db_mode == "external" %}
+  db:
+    container_name: {{ project_name_var }}-pg
+    image: postgres:17-alpine
+    restart: unless-stopped
+    ports:
+      - "{{ pg_port_var }}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    environment:
+      - POSTGRES_DB={{ postgres_db_var }}
+      - POSTGRES_USER={{ postgres_user_var }}
+      - POSTGRES_PASSWORD={{ postgres_password_var }}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U {{ postgres_user_var }} -d {{ postgres_db_var }}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+{%- endif %}
+volumes:
+{%- if db_mode == "external" %}
+  postgres-data:
+{%- endif %}
+  portabase-data:

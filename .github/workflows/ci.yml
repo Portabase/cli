@@ -1,0 +1,65 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions: {}
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    name: ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: lint
+            run: uv run ruff check . --output-format=github
+          - name: format
+            run: uv run ruff format --check .
+          - name: types
+            run: uv run mypy
+          - name: templates
+            run: uv run python scripts/render_check.py --templates templates
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: ./.github/actions/setup
+      - run: ${{ matrix.run }}
+
+  binary:
+    name: binary
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: ./.github/actions/setup
+
+      - name: Build
+        id: build
+        uses: ./.github/actions/build
+
+      # No PORTABASE_TEMPLATES_DIR: the binary must run on its own bundled copy.
+      - name: End-to-end agent creation
+        env:
+          BINARY: ${{ github.workspace }}/${{ steps.build.outputs.path }}
+          EDGE_KEY: eyJzZXJ2ZXJVcmwiOiJodHRwOi8veCIsImFnZW50SWQiOiJhIiwibWFzdGVyS2V5QjY0IjoiayJ9
+        run: |
+          set -euo pipefail
+          cd "$(mktemp -d)"
+          "$BINARY" --help > /dev/null
+          "$BINARY" --non-interactive agent smoke --key "$EDGE_KEY"
+          "$BINARY" --non-interactive db add smoke --engine postgresql --mode new
+          "$BINARY" --non-interactive db list smoke
+          "$BINARY" --non-interactive build smoke --diff
+          cd smoke && docker compose config --quiet

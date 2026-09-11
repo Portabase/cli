@@ -1,0 +1,81 @@
+name: Discord Notification
+
+on:
+  workflow_call:
+    inputs:
+      release_tag:
+        required: true
+        type: string
+      discord_title:
+        required: true
+        type: string
+      discord_color:
+        required: true
+        type: number
+      discord_footer:
+        required: false
+        type: string
+        default: Portabase
+    secrets:
+      DISCORD_WEBHOOK:
+        required: true
+
+permissions: {}
+
+jobs:
+  notify:
+    name: notify
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Send Discord notification
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          DISCORD_TITLE: ${{ inputs.discord_title }}
+          DISCORD_COLOR: ${{ inputs.discord_color }}
+          DISCORD_FOOTER: ${{ inputs.discord_footer }}
+        run: |
+          set -euo pipefail
+
+          RELEASE_INFO=$(gh release view "$RELEASE_TAG" -R "$REPOSITORY" --json name,url,body)
+
+          RELEASE_TITLE=$(echo "$RELEASE_INFO" | jq -r '.name // empty')
+          if [ -z "$RELEASE_TITLE" ]; then
+            RELEASE_TITLE="$RELEASE_TAG"
+          fi
+          RELEASE_URL=$(echo "$RELEASE_INFO" | jq -r '.url // empty')
+          RELEASE_BODY=$(echo "$RELEASE_INFO" | jq -r '.body // ""')
+
+          # Discord rejects the whole payload if any field is over its limit.
+          jq -n \
+            --arg title "$RELEASE_TITLE" \
+            --arg description "$RELEASE_BODY" \
+            --arg url "$RELEASE_URL" \
+            --arg icon "https://github.com/Portabase.png" \
+            --arg discord_title "$DISCORD_TITLE" \
+            --arg discord_footer "$DISCORD_FOOTER" \
+            --argjson discord_color "$DISCORD_COLOR" \
+            'def clip($max): if (. | length) > $max then (.[0:$max - 3] + "...") else . end;
+            {
+              content: ($discord_title | clip(2000)),
+              embeds: [{
+                title: ($title | clip(256)),
+                url: $url,
+                description: ($description | clip(4096)),
+                color: $discord_color,
+                author: { name: "Portabase", icon_url: $icon },
+                footer: { text: ($discord_footer | clip(2048)) }
+              }]
+            }' > payload.json
+
+          jq . payload.json
+
+          curl --fail-with-body -sS \
+            -H "Content-Type: application/json" \
+            -d @payload.json \
+            "$DISCORD_WEBHOOK?wait=true"

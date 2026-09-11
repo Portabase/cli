@@ -2,9 +2,11 @@ dist/
 build/
 .venv/
 __pycache__/
-uv.lock
+# Keep portabase.spec: it is the build definition.
 *.spec
+!portabase.spec
 
 .claude
 .codex/
-/docs
+
+test/

@@ -1,0 +1,13 @@
+name: Set up Python toolchain
+description: Install uv and sync the locked environment, including dev dependencies.
+
+runs:
+  using: composite
+  steps:
+    - uses: astral-sh/setup-uv@caf0cab7a618c569241d31dcd442f54681755d39 # v3
+      with:
+        enable-cache: true
+
+    - name: Install dependencies
+      shell: bash
+      run: uv sync --frozen --all-groups

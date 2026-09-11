@@ -1,46 +1,59 @@
-name: Publish Python binaries for release
+name: Release
 
 on:
   push:
     tags:
       - '*.*.*'
-      - '!*-*'
-      - '!*.*.*a*'
-      - '!*.*.*b*'
-      - '!*.*.*rc*'
-      - '!*.*.*alpha*'
-      - '!*.*.*beta*'
 
 permissions:
   contents: write
-  packages: write
+  id-token: write
+  attestations: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
-  python_build:
-    uses: ./.github/workflows/python.yml
+  channel:
+    name: channel
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      prerelease: ${{ steps.detect.outputs.prerelease }}
+    steps:
+      - id: detect
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          if [[ "$TAG" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+([-.]?(rc|alpha|beta|a|b)[0-9]*(\.[0-9]+)?)$ ]]; then
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+          elif [[ "$TAG" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "::error::tag '$TAG' is neither X.Y.Z nor X.Y.Z<rc|alpha|beta|a|b>N"
+            exit 1
+          fi
 
-  github_release:
-    needs: python_build
-    uses: ./.github/workflows/github.yml
-    with:
-      artifact_name: "portabase_*"
-      prerelease: false
-      make_latest: true
-      discord_title: "||@release-cli|| New release published"
-      discord_color: 5814783
-      discord_footer: "Portabase"
-    secrets:
-      DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
-      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  build:
+    needs: channel
+    uses: ./.github/workflows/build.yml
 
-  template_upload:
-    needs: python_build
-    uses: ./.github/workflows/templates-upload.yml
+  publish:
+    needs: [channel, build]
+    uses: ./.github/workflows/publish.yml
     with:
-      version: ${{ github.ref_name }}
-      is_prerelease: false
-    secrets:
-      S3_ENDPOINT: ${{ secrets.S3_ENDPOINT }}
-      S3_ACCESS_KEY: ${{ secrets.S3_ACCESS_KEY }}
-      S3_SECRET_KEY: ${{ secrets.S3_SECRET_KEY }}
-      S3_BUCKET: ${{ secrets.S3_BUCKET }}
+      prerelease: ${{ needs.channel.outputs.prerelease == 'true' }}
+
+  announce:
+    needs: [channel, publish]
+    uses: ./.github/workflows/discord.yml
+    with:
+      release_tag: ${{ github.ref_name }}
+      discord_title: >-
+        ${{ needs.channel.outputs.prerelease == 'true'
+            && '||@release-cli|| New release candidate published'
+            || '||@release-cli|| New release published' }}
+      discord_color: ${{ needs.channel.outputs.prerelease == 'true' && 16776960 || 5814783 }}
+    secrets: inherit

@@ -238,3 +238,15 @@ If you encounter a bug or have a suggestion for improvement, follow these steps:
 Thank you for contributing! 🙌
 
 ---
+## Releasing
+
+Releases are cut from GitHub Actions, never from a local machine.
+
+1. Open **Actions → Bump version → Run workflow**.
+2. Pick the branch (`main` for stable, any branch for a release candidate).
+3. Enter the version without a leading `v` (`26.09.0` for stable, `26.09.0rc1` for a candidate) and the matching channel.
+4. The workflow commits `chore(release): <version>`, creates the tag and pushes. The tag triggers the build, the GitHub release, the Discord notification and the template upload.
+
+Stable versions must match `X.Y.Z` and can only be cut from `main`.
+
+The workflow pushes with the `RELEASE_TOKEN` repository secret (a fine-grained PAT with *Contents: read and write*). A tag pushed with the default `GITHUB_TOKEN` would not trigger the release workflows.
