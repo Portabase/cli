@@ -5,8 +5,8 @@ from typing import Annotated
 
 import typer
 
-from commands.base import Command
-from commands.db import report_write
+from commands.base import Command, CommandGroup
+from commands.db import DbCommands, report_write
 from commands.flows.add_database import AddDatabaseFlow
 from core.errors import ValidationError
 from core.utils import validate_edge_key
@@ -31,8 +31,8 @@ def _edge_key(value: str) -> str:
     return value
 
 
-class AgentCommand(Command):
-    name, help, panel = "agent", "Create a new Portabase Agent instance.", "Creation"
+class AgentCreateCommand(Command):
+    name, help, panel = "create", "Create a new Portabase Agent instance.", "Creation"
     no_args_is_help = True
 
     def __init__(
@@ -134,7 +134,7 @@ class AgentCommand(Command):
 
         if self.ui.non_interactive:
             self.ui.hint(
-                f"Add databases with: portabase db add {name} "
+                f"Add databases with: portabase agent db add {name} "
                 "--engine postgresql --mode new"
             )
         else:
@@ -164,3 +164,31 @@ class AgentCommand(Command):
             project.save_state()
             report = result.write(project.path)
         report_write(self.ui, report)
+
+
+class AgentCommands(CommandGroup):
+    name, help, panel = "agent", "Create and manage Portabase agents.", "Components"
+
+    def __init__(
+        self,
+        ui: UI,
+        telemetry: Telemetry,
+        docker: DockerRunner,
+        templates: TemplateRepository,
+        renderer: ComposeRenderer,
+        engines: EngineRegistry,
+        ports: PortAllocator,
+    ) -> None:
+        super().__init__(ui, telemetry)
+        self._create = AgentCreateCommand(
+            ui, telemetry, docker, templates, renderer, engines, ports
+        )
+        self.db = DbCommands(ui, telemetry, engines, ports, templates, renderer, docker)
+
+    @property
+    def commands(self) -> list[Command]:
+        return [self._create]
+
+    @property
+    def groups(self) -> list[CommandGroup]:
+        return [self.db]

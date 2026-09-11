@@ -1,5 +1,6 @@
 import os
 import platform
+import re
 import sys
 from dataclasses import dataclass
 from typing import Annotated
@@ -7,11 +8,11 @@ from typing import Annotated
 import click
 import typer
 
-from commands.agent import AgentCommand
+from commands.agent import AgentCommands
+from commands.base import DeprecatedAlias
 from commands.build import BuildCommand
 from commands.config import ConfigCommands
 from commands.dashboard import DashboardCommand
-from commands.db import DbCommands
 from commands.decrypt import DecryptCommand
 from commands.lifecycle import (
     LogsCommand,
@@ -120,11 +121,10 @@ def build_app(
             ui.out(ctx.get_help() + "\n")
             raise typer.Exit()
 
+    agent = AgentCommands(
+        ui, telemetry, docker, templates, renderer, engine_registry, ports
+    )
     commands = [
-        AgentCommand(
-            ui, telemetry, docker, templates, renderer, engine_registry, ports
-        ),
-        DashboardCommand(ui, telemetry, docker, templates, renderer, ports),
         StartCommand(ui, telemetry, docker),
         StopCommand(ui, telemetry, docker),
         RestartCommand(ui, telemetry, docker),
@@ -134,14 +134,21 @@ def build_app(
         DecryptCommand(ui, telemetry),
         UpdateCommand(ui, telemetry, checker, updater),
     ]
+    agent.register(app)
+    DashboardCommand(ui, telemetry, docker, templates, renderer, ports).register(app)
     for cmd in commands:
         cmd.register(app)
-
-    DbCommands(
-        ui, telemetry, engine_registry, ports, templates, renderer, docker
-    ).register(app)
+    DeprecatedAlias(ui, telemetry, agent.db, name="db", use="agent db").register(app)
     ConfigCommands(ui, telemetry, config).register(app)
     return app, checker
+
+
+def _usage_hint(error: click.UsageError) -> str:
+    group = error.ctx.command.name if error.ctx and error.ctx.command else None
+    match = re.match(r"No such command '(.+)'", error.format_message())
+    if group in ("agent", "dashboard") and match:
+        return f"Did you mean: portabase {group} create {match.group(1)}?"
+    return "Run 'portabase --help' for usage."
 
 
 def _notify_update(
@@ -188,9 +195,7 @@ def main() -> None:
     except click.exceptions.Exit as e:
         exit_code = e.exit_code
     except click.UsageError as e:
-        err = ValidationError(
-            e.format_message(), hint="Run 'portabase --help' for usage."
-        )
+        err = ValidationError(e.format_message(), hint=_usage_hint(e))
         ui.error(err)
         telemetry.error(err)
         exit_code = err.exit_code

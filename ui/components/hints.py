@@ -7,7 +7,7 @@ from ui.components.base import Component
 HINTS = [
     "The Edge Key contains the connection details for dashboard and agent communication.",
     "Portabase uses Docker Compose to isolate your databases.",
-    "List every configured database with 'portabase db list <name>'.",
+    "List every configured database with 'portabase agent db list <name>'.",
     "Running 'portabase stop' will gracefully shut down your containers.",
     "The agent polls GitHub for configuration updates.",
     "Logs can be viewed in real time with 'portabase logs <name>'.",

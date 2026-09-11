@@ -45,8 +45,18 @@ class StopCommand(_ComposeCommand):
 
 
 class RestartCommand(_ComposeCommand):
-    name, help = "restart", "Restart a Portabase component."
-    verb, compose_args, done = "Restarting", ["restart"], "Restarted"
+    name, help = "restart", "Restart a Portabase component, applying config changes."
+    verb, compose_args, done = "Restarting", ["up", "-d"], "Restarted"
+
+    def run(self, path: PathArg) -> None:
+        path = self.require_project_dir(path)
+        self.require_docker(self.docker)
+        with self.ui.status(f"{self.verb} {path.name}..."):
+            # `compose restart` neither creates services added since the last
+            # start nor rereads env_file; `up -d` converges first.
+            self.docker.compose(path, ["up", "-d"])
+            self.docker.compose(path, ["restart"])
+        self.ui.success(self.done)
 
 
 class LogsCommand(Command):

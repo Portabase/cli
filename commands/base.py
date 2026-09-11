@@ -95,11 +95,43 @@ class CommandGroup(ABC):
     @abstractmethod
     def commands(self) -> list[Command]: ...
 
+    @property
+    def groups(self) -> list[CommandGroup]:
+        return []
+
     def build_typer(self) -> typer.Typer:
         sub = typer.Typer(help=self.help, no_args_is_help=True)
         for cmd in self.commands:
             cmd.register(sub)
+        for group in self.groups:
+            group.register(sub)
         return sub
 
     def register(self, app: typer.Typer) -> None:
         app.add_typer(self.build_typer(), name=self.name, rich_help_panel=self.panel)
+
+
+class DeprecatedAlias(CommandGroup):
+    def __init__(
+        self, ui: UI, telemetry: Telemetry, target: CommandGroup, *, name: str, use: str
+    ) -> None:
+        super().__init__(ui, telemetry)
+        self.name = name
+        self.help = f"Deprecated alias of '{use}'."
+        self.panel = target.panel
+        self._target = target
+        self._use = use
+
+    @property
+    def commands(self) -> list[Command]:
+        return self._target.commands
+
+    def build_typer(self) -> typer.Typer:
+        sub = super().build_typer()
+        ui, use, name = self.ui, self._use, self.name
+
+        @sub.callback()
+        def _warn() -> None:
+            ui.warning(f"'portabase {name}' is deprecated, use 'portabase {use}'.")
+
+        return sub

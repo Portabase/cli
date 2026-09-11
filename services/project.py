@@ -148,7 +148,7 @@ class AgentProject:
         ]
         if not matches:
             raise ValidationError(
-                f"No database matching '{id_or_name}'.", hint="See: portabase db list"
+                f"No database matching '{id_or_name}'.", hint="See: portabase agent db list"
             )
         if len(matches) > 1:
             raise ValidationError(

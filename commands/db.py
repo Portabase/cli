@@ -258,7 +258,7 @@ class DbListCommand(_DbCommand):
 
 
 class DbCommands(CommandGroup):
-    name, help, panel = "db", "Manage an agent's databases.", "Configuration"
+    name, help, panel = "db", "Manage an agent's databases.", "Components"
 
     def __init__(
         self,
