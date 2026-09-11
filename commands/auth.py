@@ -59,14 +59,16 @@ class AuthAddCommand(_AuthCommand):
     def run(
         self,
         path: PathArg,
-        kind: Annotated[str, typer.Argument(help="oidc | oauth")],
+        kind: Annotated[
+            str | None, typer.Argument(help="oidc | oauth (asked if omitted)")
+        ] = None,
         provider_id: Annotated[
-            str,
+            str | None,
             typer.Argument(
                 help="Provider id: any slug for oidc, a known name for oauth "
                 "(google, github, discord, apple, linkedin, x, reddit)"
             ),
-        ],
+        ] = None,
         client: Annotated[
             str | None, typer.Option("--client", help="Client ID")
         ] = None,
@@ -94,9 +96,18 @@ class AuthAddCommand(_AuthCommand):
             str | None, typer.Option("--host", help="OIDC host override")
         ] = None,
     ) -> None:
-        if kind not in KINDS:
-            raise ValidationError(f"Unknown kind '{kind}'.", hint="Use oidc or oauth.")
-        pid = ap.validate_provider_id(kind, provider_id)
+        form = self.ui.form()
+        picked = form.choice("Provider kind", list(KINDS), value=kind, name="kind")
+        provider_kind: ProviderKind = "oidc" if picked == "oidc" else "oauth"
+        if provider_kind == "oauth":
+            provider_id = form.choice(
+                "OAuth provider", list(ap.OAUTH_PROVIDERS), value=provider_id, name="id"
+            )
+        else:
+            provider_id = form.text(
+                "Provider id (slug, e.g. keycloak)", value=provider_id, name="id"
+            )
+        pid = ap.validate_provider_id(provider_kind, provider_id)
         if secret_stdin:
             secret = sys.stdin.readline().rstrip("\n")
         elif secret is not None:
@@ -113,21 +124,21 @@ class AuthAddCommand(_AuthCommand):
             "pkce": pkce,
             "host": host,
         }
-        fields = ap.OIDC_FIELDS if kind == "oidc" else ap.OAUTH_FIELDS
+        fields = ap.OIDC_FIELDS if provider_kind == "oidc" else ap.OAUTH_FIELDS
         allowed = {f.name for f in fields}
         stray = sorted(
             k for k, v in values.items() if v is not None and k not in allowed
         )
         if stray:
             flags = ", ".join("--" + k for k in stray)
-            raise ValidationError(f"Not applicable to {kind}: {flags}.")
+            raise ValidationError(f"Not applicable to {provider_kind}: {flags}.")
 
         project = self.load(path)
-        answers = self.ui.form().collect(list(fields), values)
-        provider = AuthProvider(kind=kind, id=pid, values=answers)
+        answers = form.collect(list(fields), values)
+        provider = AuthProvider(kind=provider_kind, id=pid, values=answers)
         project.add_provider(provider)
         self.write(project)
-        self.ui.success(f"Added {kind} provider '{pid}'.")
+        self.ui.success(f"Added {provider_kind} provider '{pid}'.")
         self.ui.info(
             f"Callback URL to register at the provider: {project.callback_url(pid)}"
         )
@@ -164,12 +175,24 @@ class AuthRemoveCommand(_AuthCommand):
     def run(
         self,
         path: PathArg,
-        provider_id: Annotated[str, typer.Argument(help="Provider id")],
+        provider_id: Annotated[
+            str | None, typer.Argument(help="Provider id (asked if omitted)")
+        ] = None,
         yes: Annotated[
             bool, typer.Option("--yes", "-y", help="Skip confirmation")
         ] = False,
     ) -> None:
         project = self.load(path)
+        if provider_id is None:
+            providers = project.providers
+            if not providers:
+                self.ui.warning("No login provider to remove.")
+                return
+            choices = [f"{p.id} ({p.kind})" for p in providers]
+            picked = self.ui.form().choice(
+                "Which provider to remove?", choices, name="id"
+            )
+            provider_id = providers[choices.index(picked)].id
         if not yes:
             self.confirm_or_abort(
                 f"Remove login provider '{provider_id}'?", default=False

@@ -50,8 +50,6 @@ class Settings:
             no_color=bool(os.environ.get("NO_COLOR")) or "--no-color" in argv,
         )
         if settings.no_color:
-            # Typer renders --help with its own Rich console, which only honors
-            # the NO_COLOR convention; --help is handled before any callback runs.
             os.environ["NO_COLOR"] = "1"
         return settings
 

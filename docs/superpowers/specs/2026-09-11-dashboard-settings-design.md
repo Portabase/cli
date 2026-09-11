@@ -185,7 +185,7 @@ Puis le message : `Apply with: portabase start NAME`.
 | `commands/agent.py` | `AgentCommands` (groupe) + `AgentCreateCommand` ; `db` devient `agent db` |
 | `commands/db.py` | inchangé, enregistré sous `agent` ; alias racine déprécié |
 | `commands/dashboard.py` | `DashboardCommands` : `create`, `show`, `set` |
-| `commands/dashboard_auth.py` | `add`, `list`, `remove` |
+| `commands/auth.py` | `add`, `list`, `remove` |
 | `commands/lifecycle.py` | `RestartCommand` → `up -d` puis `restart` |
 | `services/dashboard_settings.py` | `Setting`, `SETTINGS`, `OAUTH_PROVIDERS`, `OIDC_FIELDS` |
 | `services/project.py` | `DashboardProject` : `settings`, `providers`, `validate()`, `set()`, `add_provider()`, `remove_provider()` |
