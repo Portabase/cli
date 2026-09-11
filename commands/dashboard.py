@@ -205,9 +205,6 @@ class DashboardCreateCommand(_DashboardCommand):
         path.mkdir(parents=True, exist_ok=True)
         self.write(project)
         self.ui.success(f"Dashboard '{name}' created in {path}")
-        self.ui.hint(
-            f"Add a login provider with: portabase dashboard auth add {name} oidc <id> ..."
-        )
 
         if start or (
             not self.ui.non_interactive
@@ -218,6 +215,16 @@ class DashboardCreateCommand(_DashboardCommand):
             self.ui.success(f"Live at: {project.setting('url')}")
         else:
             self.ui.info(f"Run: portabase start {name}")
+
+        self.ui.print("")
+        self.ui.hint("Single sign-on (OIDC / OAuth) can be added at any time:")
+        self.ui.hint(f"  portabase dashboard set {name} url https://your.domain")
+        self.ui.hint(
+            f"  portabase dashboard auth add {name} oidc keycloak --issuer URL ..."
+        )
+        self.ui.hint(
+            f"  portabase dashboard auth add {name} oauth github --client ID ..."
+        )
 
     def _wizard(self, form: Form, project: DashboardProject) -> None:
         for section, names in cfg.DASHBOARD_WIZARD:
