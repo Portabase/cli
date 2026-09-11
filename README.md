@@ -64,10 +64,23 @@ Distributed under the Apache License. See `LICENSE.txt` for more details.
 
 
 
+## Commands
+
+```
+portabase agent create NAME            create an agent folder
+portabase agent db add|remove|list NAME
+portabase dashboard create NAME        create a dashboard folder
+portabase dashboard show|set|unset NAME
+portabase dashboard auth add|list|remove NAME
+portabase start|stop|restart|logs|uninstall|build PATH
+```
+
+`portabase db` still works for one release as an alias of `portabase agent db`.
+
 ## Upgrading from 26.08 or earlier
 
 From this release the CLI owns `docker-compose.yml`: it is re-rendered from your
-`.env` and `databases.json` whenever you run `portabase db add`, `db remove` or
+`.env` and `databases.json` whenever you run `portabase agent db add`, `agent db remove` or
 `build`. The first time that happens on an older install, the existing file is
 copied to `docker-compose.legacy.yml` first.
 

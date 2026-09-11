@@ -12,7 +12,7 @@ from commands.agent import AgentCommands
 from commands.base import DeprecatedAlias
 from commands.build import BuildCommand
 from commands.config import ConfigCommands
-from commands.dashboard import DashboardCommand
+from commands.dashboard import DashboardCommands
 from commands.decrypt import DecryptCommand
 from commands.lifecycle import (
     LogsCommand,
@@ -135,7 +135,7 @@ def build_app(
         UpdateCommand(ui, telemetry, checker, updater),
     ]
     agent.register(app)
-    DashboardCommand(ui, telemetry, docker, templates, renderer, ports).register(app)
+    DashboardCommands(ui, telemetry, docker, templates, renderer, ports).register(app)
     for cmd in commands:
         cmd.register(app)
     DeprecatedAlias(ui, telemetry, agent.db, name="db", use="agent db").register(app)
