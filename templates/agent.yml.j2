@@ -26,7 +26,7 @@ services:
       {{ name }}: "{{ value }}"
 {%- endfor %}
 {%- if ca_bundle %}
-      SSL_CERT_FILE: "{{ ca_bundle_in_container }}"
+      SSL_CERT_FILE: "{{ ssl_cert_file_var }}"
 {%- endif %}
     networks:
       - portabase

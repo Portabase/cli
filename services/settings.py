@@ -56,7 +56,6 @@ class Setting:
     section: str
     secret: bool = False
     core: bool = False
-    container_env: bool = True
 
     @property
     def name(self) -> str:
@@ -189,9 +188,8 @@ AGENT = Registry(
                     "> ca-bundle.crt"
                 ),
             ),
-            "CA_BUNDLE",
+            None,
             "network",
-            container_env=False,
         ),
     ),
     {

@@ -15,7 +15,11 @@ import yaml
 from core.errors import TemplateError
 from core.specs import DatabaseSpec
 from engines import EngineRegistry
-from services.compose_facts import GENERATED_MARKER, ComposeFacts
+from services.compose_facts import (
+    CA_BUNDLE_IN_CONTAINER,
+    GENERATED_MARKER,
+    ComposeFacts,
+)
 from services.envfile import EnvFile
 from services.project import (
     COMPOSE_FILE,
@@ -126,8 +130,9 @@ class ComposeRenderer:
             "extra_env": [
                 (name, _var(env, name, inline)) for name in project.extra_env
             ],
-            "ca_bundle": _var(env, "CA_BUNDLE", inline) if project.ca_bundle else None,
-            "ca_bundle_in_container": project.CA_BUNDLE_IN_CONTAINER,
+            "ca_bundle": project.ca_bundle,
+            "ca_bundle_in_container": CA_BUNDLE_IN_CONTAINER,
+            "ssl_cert_file_var": _var(env, "SSL_CERT_FILE", inline),
         }
         compose = self.header() + self._render("agent.yml.j2", ctx)
         databases = [

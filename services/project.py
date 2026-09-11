@@ -11,7 +11,7 @@ from engines.base import DbEngine
 from engines.sqlite import SqliteEngine
 from services import auth_providers as ap
 from services import settings as cfg
-from services.compose_facts import ComposeFacts
+from services.compose_facts import CA_BUNDLE_IN_CONTAINER, ComposeFacts
 from services.envfile import EnvFile
 
 ProjectKind = Literal["agent", "dashboard"]
@@ -93,6 +93,7 @@ class AgentProject:
         databases = [spec_from_entry(e, env) for e in entries if isinstance(e, dict)]
         facts = ComposeFacts(path / COMPOSE_FILE)
         project = cls(path, env, databases, facts.host_gateway)
+        project._ca_bundle = facts.ca_bundle
         project.validate()
         return project
 
@@ -171,24 +172,32 @@ class AgentProject:
         setting = self.registry.get(name)
         if setting.core:
             raise ValidationError(f"'{name}' is required and cannot be unset.")
-        self.env.remove(setting.env or "")
+        if setting.env is None:
+            setattr(self, name, None)
+        else:
+            self.env.remove(setting.env)
 
     @property
     def extra_env(self) -> list[str]:
         return [
             s.env
             for s in self.registry
-            if s.env
-            and s.container_env
-            and not s.core
-            and self.env.get(s.env) is not None
+            if s.env and not s.core and self.env.get(s.env) is not None
         ]
 
-    CA_BUNDLE_IN_CONTAINER = "/etc/ssl/certs/portabase-ca-bundle.crt"
+    _ca_bundle: str | None = None
 
     @property
     def ca_bundle(self) -> str | None:
-        return self.env.get("CA_BUNDLE")
+        return self._ca_bundle
+
+    @ca_bundle.setter
+    def ca_bundle(self, host_path: str | None) -> None:
+        self._ca_bundle = host_path or None
+        if host_path:
+            self.env.set("SSL_CERT_FILE", CA_BUNDLE_IN_CONTAINER)
+        else:
+            self.env.remove("SSL_CERT_FILE")
 
     def find(self, id_or_name: str) -> DatabaseSpec:
         matches = [
