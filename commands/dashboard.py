@@ -8,8 +8,8 @@ from urllib.parse import quote
 
 import typer
 
+from commands.auth import DashboardAuthCommands
 from commands.base import Command, CommandGroup
-from commands.dashboard_auth import DashboardAuthCommands
 from commands.db import report_write
 from commands.settings import (
     SetCommand,
