@@ -124,6 +124,12 @@ class AgentProject:
         return mounts
 
     def validate(self) -> None:
+        bundle = self.ca_bundle
+        if bundle and not (self.path / bundle).exists() and not Path(bundle).exists():
+            raise ValidationError(
+                f"CA bundle not found: {bundle}",
+                hint=f"Path is resolved from {self.path}; use an absolute path otherwise.",
+            )
         seen: set[str] = set()
         for d in self.managed:
             if d.host in seen:
@@ -172,8 +178,17 @@ class AgentProject:
         return [
             s.env
             for s in self.registry
-            if s.env and not s.core and self.env.get(s.env) is not None
+            if s.env
+            and s.container_env
+            and not s.core
+            and self.env.get(s.env) is not None
         ]
+
+    CA_BUNDLE_IN_CONTAINER = "/etc/ssl/certs/portabase-ca-bundle.crt"
+
+    @property
+    def ca_bundle(self) -> str | None:
+        return self.env.get("CA_BUNDLE")
 
     def find(self, id_or_name: str) -> DatabaseSpec:
         matches = [
@@ -193,6 +208,7 @@ class AgentProject:
         return matches[0]
 
     def save_state(self) -> None:
+        self.validate()
         self.env.save()
 
 

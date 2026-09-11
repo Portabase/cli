@@ -10,6 +10,9 @@ services:
 {%- if docker_socket %}
       - /var/run/docker.sock:/var/run/docker.sock
 {%- endif %}
+{%- if ca_bundle %}
+      - {{ ca_bundle }}:{{ ca_bundle_in_container }}:ro
+{%- endif %}
 {%- if host_gateway %}
     extra_hosts:
       - "localhost:host-gateway"
@@ -22,6 +25,9 @@ services:
 {%- for name, value in extra_env %}
       {{ name }}: "{{ value }}"
 {%- endfor %}
+{%- if ca_bundle %}
+      SSL_CERT_FILE: "{{ ca_bundle_in_container }}"
+{%- endif %}
     networks:
       - portabase
 {% for s in services %}

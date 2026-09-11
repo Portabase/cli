@@ -56,6 +56,7 @@ class Setting:
     section: str
     secret: bool = False
     core: bool = False
+    container_env: bool = True
 
     @property
     def name(self) -> str:
@@ -178,13 +179,19 @@ AGENT = Registry(
         ),
         Setting(
             Field(
-                "ssl_cert_file",
-                "CA bundle path for outgoing TLS",
-                "text",
-                help="Replaces the default root store; include the Mozilla roots too.",
+                "ca_bundle",
+                "CA bundle on this host (for an internal CA)",
+                "path",
+                help=(
+                    "The file is mounted read-only and SSL_CERT_FILE points at it. "
+                    "It REPLACES the root store, so concatenate the Mozilla roots "
+                    "with your CA: cat /etc/ssl/certs/ca-certificates.crt my-ca.crt "
+                    "> ca-bundle.crt"
+                ),
             ),
-            "SSL_CERT_FILE",
+            "CA_BUNDLE",
             "network",
+            container_env=False,
         ),
     ),
     {

@@ -126,6 +126,8 @@ class ComposeRenderer:
             "extra_env": [
                 (name, _var(env, name, inline)) for name in project.extra_env
             ],
+            "ca_bundle": _var(env, "CA_BUNDLE", inline) if project.ca_bundle else None,
+            "ca_bundle_in_container": project.CA_BUNDLE_IN_CONTAINER,
         }
         compose = self.header() + self._render("agent.yml.j2", ctx)
         databases = [
