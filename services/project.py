@@ -9,10 +9,12 @@ from core.errors import ConfigError, ValidationError
 from core.specs import DatabaseSpec
 from engines.base import DbEngine
 from engines.sqlite import SqliteEngine
+from services import dashboard_settings as ds
 from services.compose_facts import ComposeFacts
 from services.envfile import EnvFile
 
 ProjectKind = Literal["agent", "dashboard"]
+ProviderKind = Literal["oidc", "oauth"]
 DATABASES_FILE = "databases.json"
 COMPOSE_FILE = "docker-compose.yml"
 ENV_FILE = ".env"
@@ -148,7 +150,8 @@ class AgentProject:
         ]
         if not matches:
             raise ValidationError(
-                f"No database matching '{id_or_name}'.", hint="See: portabase agent db list"
+                f"No database matching '{id_or_name}'.",
+                hint="See: portabase agent db list",
             )
         if len(matches) > 1:
             raise ValidationError(
@@ -194,5 +197,107 @@ class DashboardProject:
     def project_name(self) -> str:
         return self.env.get("PROJECT_NAME") or self.path.name
 
+    def setting(self, name: str) -> Any:
+        setting = ds.get(name)
+        return ds.from_env(setting, self.env.get(setting.env))
+
+    def settings(self) -> dict[str, Any]:
+        return {s.name: ds.from_env(s, self.env.get(s.env)) for s in ds.SETTINGS}
+
+    def set(self, name: str, value: Any) -> None:
+        setting = ds.get(name)
+        self.env.set(setting.env, ds.to_env(setting, value))
+
+    def unset(self, name: str) -> None:
+        self.env.remove(ds.get(name).env)
+
+    @property
+    def providers(self) -> list[AuthProvider]:
+        found: dict[tuple[ProviderKind, str], dict[str, str]] = {}
+        kinds: tuple[tuple[ProviderKind, str], ...] = (
+            ("oidc", "AUTH_OIDC_"),
+            ("oauth", "AUTH_SOCIAL_"),
+        )
+        for key, value in self.env.as_dict().items():
+            for kind, prefix in kinds:
+                if not key.startswith(prefix):
+                    continue
+                rest = key[len(prefix) :]
+                env_map = ds.OIDC_ENV if kind == "oidc" else ds.OAUTH_ENV
+                for field_name, suffix in env_map.items():
+                    if rest.endswith("_" + suffix):
+                        slug = rest[: -len(suffix) - 1]
+                        found.setdefault((kind, slug), {})[field_name] = value
+                        break
+                else:
+                    if kind == "oidc" and rest.endswith("_ID"):
+                        found.setdefault((kind, rest[:-3]), {})["id"] = value
+        providers = []
+        for (kind, slug), values in sorted(found.items()):
+            pid = values.pop("id", slug.lower().replace("_", "-"))
+            providers.append(AuthProvider(kind=kind, id=pid, values=values))
+        return providers
+
+    def add_provider(self, provider: AuthProvider) -> None:
+        if any(p.id == provider.id for p in self.providers):
+            raise ValidationError(
+                f"A provider named '{provider.id}' already exists.",
+                hint="Remove it first: portabase dashboard auth remove",
+            )
+        prefix = ds.provider_prefix(provider.kind, provider.id)
+        env_map = ds.OIDC_ENV if provider.kind == "oidc" else ds.OAUTH_ENV
+        if provider.kind == "oidc":
+            self.env.set(f"{prefix}_ID", provider.id)
+        for field_name, value in provider.values.items():
+            if value in ("", None, False):
+                continue
+            raw = "true" if value is True else str(value)
+            self.env.set(f"{prefix}_{env_map[field_name]}", raw)
+
+    def remove_provider(self, provider_id: str) -> AuthProvider:
+        match = next((p for p in self.providers if p.id == provider_id), None)
+        if match is None:
+            raise ValidationError(
+                f"No provider named '{provider_id}'.",
+                hint="See: portabase dashboard auth list",
+            )
+        self.env.remove_prefix(ds.provider_prefix(match.kind, match.id))
+        return match
+
+    def callback_url(self, provider_id: str) -> str:
+        return f"{self.setting('url')}/api/auth/sso/callback/{provider_id}"
+
+    def validate(self) -> None:
+        values = self.settings()
+        providers = self.providers
+        if values["skip_onboarding"] and not (
+            values["admin_email"] and values["admin_password"]
+        ):
+            raise ValidationError(
+                "Skipping onboarding needs an initial account.",
+                hint="Set admin_email and admin_password.",
+            )
+        if not values["password_auth"] and not providers:
+            raise ValidationError(
+                "Disabling password login with no OIDC or OAuth provider "
+                "would lock everyone out.",
+                hint="Add a provider first: portabase dashboard auth add",
+            )
+        url = values["url"] or ""
+        if providers and ("localhost" in url or "127.0.0.1" in url):
+            raise ValidationError(
+                f"Login providers need a public URL for their callback "
+                f"(currently {url}).",
+                hint="portabase dashboard set NAME url https://your.domain",
+            )
+
     def save_state(self) -> None:
+        self.validate()
         self.env.save()
+
+
+@dataclass(frozen=True)
+class AuthProvider:
+    kind: ProviderKind
+    id: str
+    values: dict[str, Any]
