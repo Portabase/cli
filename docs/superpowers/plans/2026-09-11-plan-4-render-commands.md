@@ -1349,7 +1349,7 @@ class DashboardCommand(Command):
             rows += [("DB Host", host), ("DB Name", dbname), ("Connection URL", env_vars["DATABASE_URL"])]
 
         rows.append(("Files to Create", "docker-compose.yml, .env"))
-        self.ui.summary(rows, title="PROPOSED CONFIGURATION")
+        self.ui.summary(rows, title="SUMMARY")
         if not yes:
             self.confirm_or_abort("Apply this configuration and generate files?", default=True)
 

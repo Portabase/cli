@@ -121,7 +121,7 @@ class AgentCommand(Command):
                 ("Host Gateway", "Yes" if gateway else "No"),
                 ("Files to Create", "docker-compose.yml, .env, databases.json"),
             ],
-            title="PROPOSED CONFIGURATION",
+            title="SUMMARY",
         )
         if not yes:
             self.confirm_or_abort(
