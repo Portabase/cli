@@ -254,8 +254,8 @@ Releases are cut from GitHub Actions, never from a local machine.
 1. Open **Actions → Bump version → Run workflow**.
 2. Pick the branch (`main` for stable, any branch for a release candidate).
 3. Enter the version without a leading `v` (`26.09.0` for stable, `26.09.0rc1` for a candidate) and the matching channel.
-4. The workflow commits `chore(release): <version>`, creates the tag and pushes. The tag triggers the build, the GitHub release, the Discord notification and the template upload.
+4. The workflow commits `chore(release): <version>`, creates the tag and pushes. The tag triggers the build, the GitHub release and the Discord notification.
 
 Stable versions must match `X.Y.Z` and can only be cut from `main`.
 
-The workflow pushes with the `RELEASE_TOKEN` repository secret (a fine-grained PAT with *Contents: read and write*). A tag pushed with the default `GITHUB_TOKEN` would not trigger the release workflows.
+The workflow pushes with a token minted from the Portabase GitHub App (`APP_ID` repository variable, `APP_PRIVATE_KEY` secret), scoped to *Contents: write*. The app must be installed on this repository and allowed to push to `main`. A tag pushed with the default `GITHUB_TOKEN` would not trigger the release workflows.
