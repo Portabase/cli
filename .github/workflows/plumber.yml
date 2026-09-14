@@ -20,8 +20,8 @@ jobs:
       contents: read
       id-token: write
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - uses: getplumber/plumber@7ad9d267ee5a00163cec9e5c749a088d5f565167 # v0.4.26
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: getplumber/plumber@f84005b69dc57965d192feedd08b4a20fa6e52cc # v0.4.60
         with:
           score-push: true
           upload-sarif: false
