@@ -1,5 +1,5 @@
-dist/
-build/
+/dist/
+/build/
 .venv/
 __pycache__/
 # Keep portabase.spec: it is the build definition.
