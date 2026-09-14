@@ -38,9 +38,9 @@ class ComposeFacts:
     def host_gateway(self) -> bool:
         extra = self._service("agent").get("extra_hosts")
         if isinstance(extra, list):
-            return any("host-gateway" in str(x) for x in extra)
+            return any("host-gateway" in str(entry) for entry in extra)
         if isinstance(extra, dict):
-            return any("host-gateway" in str(v) for v in extra.values())
+            return any("host-gateway" in str(value) for value in extra.values())
         return False
 
     @property

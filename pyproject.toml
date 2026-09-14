@@ -60,11 +60,14 @@ known-first-party = ["commands", "core", "engines", "services", "ui"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-q"
+python_files = ["*.py"]
+python_functions = ["[!_]*"]
+pythonpath = ["."]
+addopts = "-q --import-mode=importlib"
 
 [tool.mypy]
 python_version = "3.12"
-files = ["commands", "core", "engines", "services", "ui", "scripts", "main.py"]
+files = ["commands", "core", "engines", "services", "ui", "tests", "main.py"]
 ignore_missing_imports = true
 warn_unused_ignores = true
 warn_redundant_casts = true

@@ -84,16 +84,22 @@ class AgentCreateCommand(Command):
         provided = read_secret_flags(cfg.AGENT, settings)
         form = self.ui.form()
         answers = {
-            s.name: form.ask(s.field, provided.get(s.name)) for s in cfg.AGENT if s.core
+            setting.name: form.ask(setting.field, provided.get(setting.name))
+            for setting in cfg.AGENT
+            if setting.core
         }
         env_vars = {
-            s.env: s.to_env(answers[s.name]) for s in cfg.AGENT if s.core and s.env
+            setting.env: setting.to_env(answers[setting.name])
+            for setting in cfg.AGENT
+            if setting.core and setting.env
         }
         gateway = bool(answers["host_gateway"])
 
         rows = [("Agent Name", name), ("Path", str(path))]
         rows += [
-            (s.field.prompt, display(s, answers[s.name])) for s in cfg.AGENT if s.core
+            (setting.field.prompt, display(setting, answers[setting.name]))
+            for setting in cfg.AGENT
+            if setting.core
         ]
         rows.append(("Files to Create", "docker-compose.yml, .env, databases.json"))
         self.ui.summary(rows, title="SUMMARY")
@@ -106,7 +112,11 @@ class AgentCreateCommand(Command):
         apply_settings(
             self.ui,
             project,
-            {k: v for k, v in provided.items() if not cfg.AGENT.get(k).core},
+            {
+                key: value
+                for key, value in provided.items()
+                if not cfg.AGENT.get(key).core
+            },
         )
         self._write(project)
         self.ui.success(f"Agent '{name}' created in {path}")
@@ -158,8 +168,12 @@ class AgentShowCommand(Command):
         show_settings(self.ui, project)
         if project.databases:
             rows = [
-                [d.name, d.engine, self.engines.get(d.engine).describe(d)]
-                for d in project.databases
+                [
+                    database.name,
+                    database.engine,
+                    self.engines.get(database.engine).describe(database),
+                ]
+                for database in project.databases
             ]
             self.ui.table(["Name", "Engine", "Where"], rows, title="DATABASES")
         else:

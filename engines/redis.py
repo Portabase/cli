@@ -41,10 +41,10 @@ class RedisEngine(DbEngine):
         )
 
     def env_vars(self, spec: DatabaseSpec) -> dict[str, str]:
-        p = spec.env_prefix
-        out = {f"{p}_PORT": str(spec.host_port)}
+        prefix = spec.env_prefix
+        out = {f"{prefix}_PORT": str(spec.host_port)}
         if spec.auth:
-            out[f"{p}_PASS"] = spec.password or ""
+            out[f"{prefix}_PASS"] = spec.password or ""
         return out
 
     def agent_database(self, spec: DatabaseSpec) -> str:

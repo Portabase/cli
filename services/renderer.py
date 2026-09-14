@@ -14,6 +14,7 @@ import yaml
 
 from core.errors import TemplateError
 from core.specs import DatabaseSpec
+from core.utils import escape_yaml_double_quoted
 from engines import EngineRegistry
 from services.compose_facts import (
     CA_BUNDLE_IN_CONTAINER,
@@ -46,10 +47,10 @@ class RenderResult:
     def validate(self) -> None:
         try:
             doc = yaml.safe_load(self.compose)
-        except yaml.YAMLError as e:
+        except yaml.YAMLError as error:
             raise TemplateError(
-                "Rendered compose is not valid YAML; templates are broken.", cause=e
-            ) from e
+                "Rendered compose is not valid YAML; templates are broken.", cause=error
+            ) from error
         if not isinstance(doc, dict) or "services" not in doc:
             raise TemplateError(
                 "Rendered compose has no 'services' section; templates are broken."
@@ -100,7 +101,9 @@ def _atomic_write(path: Path, content: str) -> None:
 
 
 def _var(env: EnvFile, key: str, inline: bool) -> str:
-    return (env.get(key) or "") if inline else f"${{{key}}}"
+    if inline:
+        return escape_yaml_double_quoted(env.get(key) or "")
+    return f"${{{key}}}"
 
 
 class ComposeRenderer:
@@ -121,7 +124,10 @@ class ComposeRenderer:
         ctx = {
             "host_gateway": project.host_gateway,
             "docker_socket": project.needs_docker_socket,
-            "mounts": [{"host": h, "container": c} for h, c in project.sqlite_mounts],
+            "mounts": [
+                {"host": host, "container": container}
+                for host, container in project.sqlite_mounts
+            ],
             "services": [self._service(spec, inline) for spec in project.managed],
             "tz_var": _var(env, "TZ", inline),
             "edge_key_var": _var(env, "EDGE_KEY", inline),
@@ -136,7 +142,8 @@ class ComposeRenderer:
         }
         compose = self.header() + self._render("agent.yml.j2", ctx)
         databases = [
-            self.engines.get(d.engine).agent_entry(d) for d in project.databases
+            self.engines.get(database.engine).agent_entry(database)
+            for database in project.databases
         ]
         return RenderResult(compose=compose, databases=databases)
 
@@ -173,5 +180,7 @@ class ComposeRenderer:
     def _render_template(template: jinja2.Template, ctx: dict[str, Any]) -> str:
         try:
             return template.render(**ctx)
-        except jinja2.TemplateError as e:
-            raise TemplateError(f"Template rendering failed: {e}", cause=e) from e
+        except jinja2.TemplateError as error:
+            raise TemplateError(
+                f"Template rendering failed: {error}", cause=error
+            ) from error

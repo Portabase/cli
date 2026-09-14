@@ -9,9 +9,9 @@ class PortAllocator:
 
     def free(self) -> int:
         for _ in range(50):
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                s.bind(("", 0))
-                port = s.getsockname()[1]
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+                sock.bind(("", 0))
+                port = sock.getsockname()[1]
             if port not in self._given:
                 self._given.add(port)
                 return port

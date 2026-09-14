@@ -72,15 +72,19 @@ class DecryptCommand(Command):
             out = output_path.resolve()
         try:
             decrypt_enc_file(enc_path, out, master_key)
-        except OSError as e:
-            raise DecryptionError(f"I/O error on {enc_path.name}: {e}", cause=e) from e
+        except OSError as error:
+            raise DecryptionError(
+                f"I/O error on {enc_path.name}: {error}", cause=error
+            ) from error
         self.ui.success(f"Decrypted {enc_path.name} → {out}")
 
     def _folder(
         self, in_dir: Path, output_path: Path | None, master_key: bytes
     ) -> None:
         enc_files = sorted(
-            p for p in in_dir.iterdir() if p.is_file() and p.suffix == ENC_SUFFIX
+            path
+            for path in in_dir.iterdir()
+            if path.is_file() and path.suffix == ENC_SUFFIX
         )
         if not enc_files:
             self.ui.warning(f"No {ENC_SUFFIX} files found in {in_dir}.")
@@ -101,8 +105,8 @@ class DecryptCommand(Command):
                 out = out_dir / default_output_for(enc_path)
                 try:
                     decrypt_enc_file(enc_path, out, master_key)
-                except (DecryptionError, OSError) as e:
-                    failures.append((enc_path.name, str(e)))
+                except (DecryptionError, OSError) as error:
+                    failures.append((enc_path.name, str(error)))
         succeeded = len(enc_files) - len(failures)
         self.ui.info(
             f"Done: {succeeded} succeeded, {len(failures)} failed "

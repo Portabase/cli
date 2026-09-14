@@ -9,7 +9,6 @@ import click
 import typer
 
 from commands.agent import AgentCommands
-from commands.base import DeprecatedAlias
 from commands.build import BuildCommand
 from commands.config import ConfigCommands
 from commands.dashboard import DashboardCommands
@@ -136,7 +135,6 @@ def build_app(
     DashboardCommands(ui, telemetry, docker, templates, renderer, ports).register(app)
     for cmd in commands:
         cmd.register(app)
-    DeprecatedAlias(ui, telemetry, agent.db, name="db", use="agent db").register(app)
     ConfigCommands(ui, telemetry, config).register(app)
     return app, checker
 
@@ -144,6 +142,8 @@ def build_app(
 def _usage_hint(error: click.UsageError) -> str:
     group = error.ctx.command.name if error.ctx and error.ctx.command else None
     match = re.match(r"No such command '(.+)'", error.format_message())
+    if match and match.group(1) == "db":
+        return "Database commands belong to the agent: portabase agent db ..."
     if group in ("agent", "dashboard") and match:
         return f"Did you mean: portabase {group} create {match.group(1)}?"
     return "Run 'portabase --help' for usage."
@@ -172,7 +172,9 @@ def main() -> None:
     ui = UI(non_interactive=settings.non_interactive, no_color=settings.no_color)
     telemetry = NoopTelemetry()
     app, checker = build_app(ui, telemetry, config, settings)
-    invoked = next((a for a in sys.argv[1:] if not a.startswith("-")), None)
+    invoked = next(
+        (argument for argument in sys.argv[1:] if not argument.startswith("-")), None
+    )
     exit_code = 0
 
     try:
@@ -180,20 +182,20 @@ def main() -> None:
             result = app(standalone_mode=False)
             if isinstance(result, int):
                 exit_code = result
-    except UserAbort as e:
-        ui.warning(e.message)
+    except UserAbort as error:
+        ui.warning(error.message)
         telemetry.event("abort")
-        exit_code = e.exit_code
-    except PortabaseError as e:
-        ui.error(e)
-        telemetry.error(e)
-        exit_code = e.exit_code
+        exit_code = error.exit_code
+    except PortabaseError as error:
+        ui.error(error)
+        telemetry.error(error)
+        exit_code = error.exit_code
     except click.exceptions.NoArgsIsHelpError:
         exit_code = 0
-    except click.exceptions.Exit as e:
-        exit_code = e.exit_code
-    except click.UsageError as e:
-        err = ValidationError(e.format_message(), hint=_usage_hint(e))
+    except click.exceptions.Exit as error:
+        exit_code = error.exit_code
+    except click.UsageError as error:
+        err = ValidationError(error.format_message(), hint=_usage_hint(error))
         ui.error(err)
         telemetry.error(err)
         exit_code = err.exit_code
@@ -201,10 +203,10 @@ def main() -> None:
         ui.print("")
         ui.warning("Canceled.")
         exit_code = 130
-    except Exception as e:  # noqa: BLE001 — last resort: a bug, not an expected error
-        wrapped = PortabaseError("Unexpected error: " + str(e), cause=e)
+    except Exception as error:  # noqa: BLE001 — last resort: a bug, not an expected error
+        wrapped = PortabaseError("Unexpected error: " + str(error), cause=error)
         ui.error(wrapped, unexpected=True)
-        telemetry.error(e, unexpected=True)
+        telemetry.error(error, unexpected=True)
         exit_code = 1
     finally:
         telemetry.flush()

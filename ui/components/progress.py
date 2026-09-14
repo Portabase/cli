@@ -31,4 +31,4 @@ class Progress(Component):
             console=self.console,
         ) as progress:
             task = progress.add_task(description, total=total or None)
-            yield lambda n: progress.update(task, advance=n)
+            yield lambda amount: progress.update(task, advance=amount)

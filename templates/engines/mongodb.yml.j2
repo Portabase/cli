@@ -7,10 +7,10 @@
       - "{{ port_var }}:27017"
     environment:
 {%- if auth %}
-      - MONGO_INITDB_ROOT_USERNAME={{ user_var }}
-      - MONGO_INITDB_ROOT_PASSWORD={{ password_var }}
+      - "MONGO_INITDB_ROOT_USERNAME={{ user_var }}"
+      - "MONGO_INITDB_ROOT_PASSWORD={{ password_var }}"
 {%- endif %}
-      - MONGO_INITDB_DATABASE={{ db_var }}
+      - "MONGO_INITDB_DATABASE={{ db_var }}"
 {%- if auth %}
     command: mongod --auth
 {%- endif %}

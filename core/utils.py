@@ -31,6 +31,10 @@ def generate_password(length: int = 16) -> str:
     return "".join(password)
 
 
+def escape_yaml_double_quoted(value: str) -> str:
+    return value.replace("\\", "\\\\").replace('"', '\\"')
+
+
 def slugify_project_name(value: str, fallback: str = "portabase") -> str:
     slug = re.sub(r"[^a-z0-9_-]+", "-", value.lower())
     slug = slug.strip("-_")
@@ -52,6 +56,8 @@ def validate_edge_key(key: str) -> bool:
                 return False
 
         required_fields = ["serverUrl", "agentId", "masterKeyB64"]
-        return all(field in data for field in required_fields)
+        return isinstance(data, dict) and all(
+            field in data for field in required_fields
+        )
     except TypeError:
         return False

@@ -53,8 +53,10 @@ class DockerRunner:
             return False
         try:
             subprocess.run(cmd, check=True)
-        except (subprocess.CalledProcessError, OSError) as e:
-            raise DockerError(f"Failed to start Docker: {e}", cause=e) from e
+        except (subprocess.CalledProcessError, OSError) as error:
+            raise DockerError(
+                f"Failed to start Docker: {error}", cause=error
+            ) from error
         deadline = time.monotonic() + wait_seconds
         while time.monotonic() < deadline:
             if self.daemon_running():
@@ -77,10 +79,10 @@ class DockerRunner:
                 stdout=subprocess.DEVNULL,
                 check=True,
             )
-        except subprocess.CalledProcessError as e:
+        except subprocess.CalledProcessError as error:
             raise DockerError(
-                f"Could not create Docker network '{name}'.", cause=e
-            ) from e
+                f"Could not create Docker network '{name}'.", cause=error
+            ) from error
 
     def remove_volume(self, name: str) -> bool:
         proc = subprocess.run(
@@ -116,11 +118,11 @@ class DockerRunner:
                 capture_output=capture,
                 text=capture,
             )
-        except subprocess.CalledProcessError as e:
+        except subprocess.CalledProcessError as error:
             raise DockerError(
-                f"docker compose {' '.join(args)} failed (exit {e.returncode}).",
+                f"docker compose {' '.join(args)} failed (exit {error.returncode}).",
                 hint=f"Run it manually in {cwd} to see the full output.",
-                cause=e,
-            ) from e
-        except OSError as e:
-            raise DockerError(f"Could not run docker: {e}", cause=e) from e
+                cause=error,
+            ) from error
+        except OSError as error:
+            raise DockerError(f"Could not run docker: {error}", cause=error) from error

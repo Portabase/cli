@@ -39,7 +39,7 @@ class TemplateRepository:
 
     def names(self) -> list[str]:
         return sorted(
-            p.relative_to(self.root).as_posix() for p in self.root.rglob("*.j2")
+            path.relative_to(self.root).as_posix() for path in self.root.rglob("*.j2")
         )
 
     def get(self, name: str) -> jinja2.Template:
@@ -53,11 +53,11 @@ class TemplateRepository:
             )
         try:
             return self._env.get_template(name)
-        except jinja2.TemplateNotFound as e:
+        except jinja2.TemplateNotFound as error:
             raise TemplateError(
-                f"Template '{name}' is missing from {root}.", cause=e
-            ) from e
-        except jinja2.TemplateError as e:
+                f"Template '{name}' is missing from {root}.", cause=error
+            ) from error
+        except jinja2.TemplateError as error:
             raise TemplateError(
-                f"Template '{name}' failed to load: {e}", cause=e
-            ) from e
+                f"Template '{name}' failed to load: {error}", cause=error
+            ) from error

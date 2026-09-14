@@ -96,7 +96,7 @@ class AddDatabaseFlow:
         self, form: Form, engine: DbEngine, provided: dict[str, str]
     ) -> dict[str, Any]:
         option_fields = engine.option_fields()
-        known = {f.name for f in option_fields}
+        known = {field.name for field in option_fields}
         unknown = set(provided) - known
         if unknown:
             raise ValidationError(
@@ -115,14 +115,16 @@ class AddDatabaseFlow:
     def _reject_irrelevant(
         values: dict[str, Any], fields: list[Field], engine: DbEngine, mode: str
     ) -> None:
-        relevant = {f.name for f in fields} | FLOW_KEYS
+        relevant = {field.name for field in fields} | FLOW_KEYS
         extra = sorted(
-            k for k, v in values.items() if v is not None and k not in relevant
+            key
+            for key, value in values.items()
+            if value is not None and key not in relevant
         )
         if not extra:
             return
-        flags = ", ".join("--" + k.replace("_", "-") for k in extra)
-        applicable = ", ".join("--" + f.name.replace("_", "-") for f in fields)
+        flags = ", ".join("--" + key.replace("_", "-") for key in extra)
+        applicable = ", ".join("--" + field.name.replace("_", "-") for field in fields)
         raise ValidationError(
             f"Option(s) not applicable to {engine.key} in '{mode}' mode: {flags}.",
             hint=f"Applicable: {applicable}"

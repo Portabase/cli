@@ -109,6 +109,6 @@ class UninstallCommand(Command):
             self.docker.compose(path, ["down", "-v"])
             try:
                 shutil.rmtree(path)
-            except OSError as e:
-                self.ui.warning(f"Could not remove directory: {e}")
+            except OSError as error:
+                self.ui.warning(f"Could not remove directory: {error}")
         self.ui.success("Uninstalled")

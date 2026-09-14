@@ -56,10 +56,10 @@ class UpdateCommand(Command):
     def _latest(self) -> Release:
         try:
             release = self.checker.fetch_latest()
-        except NetworkError as e:
+        except NetworkError as error:
             raise UpdateError(
-                "Could not fetch latest release data from GitHub.", cause=e
-            ) from e
+                "Could not fetch latest release data from GitHub.", cause=error
+            ) from error
         if release is None:
             raise UpdateError("No release found for this channel.")
         return release

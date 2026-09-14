@@ -92,7 +92,7 @@ class BuildCommand(Command):
         report = result.write(target)
         report_write(self.ui, report)
         self.ui.success(
-            f"Rendered {', '.join(p.name for p in report.wrote)} in {target}"
+            f"Rendered {', '.join(path.name for path in report.wrote)} in {target}"
         )
         if kind == "agent" and output is None:
             self.ui.info(f"Restart to apply: portabase restart {path.name}")

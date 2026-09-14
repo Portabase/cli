@@ -17,8 +17,8 @@ class GlobalConfig:
         if not self.path.exists():
             return {}
         try:
-            with open(self.path, encoding="utf-8") as f:
-                data = json.load(f)
+            with open(self.path, encoding="utf-8") as file:
+                data = json.load(file)
         except (OSError, json.JSONDecodeError):
             return {}
         return data if isinstance(data, dict) else {}
@@ -31,8 +31,8 @@ class GlobalConfig:
         data[key] = value
         self.path.parent.mkdir(parents=True, exist_ok=True)
         tmp = self.path.with_suffix(".json.tmp")
-        with open(tmp, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2)
+        with open(tmp, "w", encoding="utf-8") as file:
+            json.dump(data, file, indent=2)
         os.replace(tmp, self.path)
 
     @property

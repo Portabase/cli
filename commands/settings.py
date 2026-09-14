@@ -80,9 +80,9 @@ def with_settings_flags(
         run(*args, **kwargs)
 
     static = [
-        p
-        for p in inspect.signature(run, eval_str=True).parameters.values()
-        if p.kind is not inspect.Parameter.VAR_KEYWORD
+        parameter
+        for parameter in inspect.signature(run, eval_str=True).parameters.values()
+        if parameter.kind is not inspect.Parameter.VAR_KEYWORD
     ]
     signature = inspect.Signature(static + settings_parameters(registry))
     entry.__signature__ = signature  # type: ignore[attr-defined]
@@ -119,9 +119,9 @@ def show_settings(ui: UI, project: SettingsProject) -> None:
     values = project.settings()
     for section, title in project.registry.sections.items():
         rows = [
-            (s.field.prompt, display(s, values[s.name]))
-            for s in project.registry.in_section(section)
-            if values[s.name] not in (None, "")
+            (setting.field.prompt, display(setting, values[setting.name]))
+            for setting in project.registry.in_section(section)
+            if values[setting.name] not in (None, "")
         ]
         if rows:
             ui.summary(rows, title=title.upper())

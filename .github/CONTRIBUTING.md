@@ -168,6 +168,15 @@ uv run python main.py config channel stable   # or: beta
 uv run python main.py update
 ```
 
+### Running the tests
+
+Unit tests live in `tests/`, mirroring `core/`, `services/` and `engines/`. They call
+the functions directly: no Docker, no network, no built binary.
+
+```bash
+uv run pytest
+uv run ruff check . && uv run ruff format --check . && uv run mypy
+```
 ---
 
 ## Reporting Issues

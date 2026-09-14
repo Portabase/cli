@@ -29,5 +29,8 @@ class MssqlEngine(StandardSqlEngine):
         )
 
     def env_vars(self, spec: DatabaseSpec) -> dict[str, str]:
-        p = spec.env_prefix
-        return {f"{p}_PORT": str(spec.host_port), f"{p}_PASS": spec.password or ""}
+        prefix = spec.env_prefix
+        return {
+            f"{prefix}_PORT": str(spec.host_port),
+            f"{prefix}_PASS": spec.password or "",
+        }

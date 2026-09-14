@@ -32,9 +32,12 @@ class MongoEngine(DbEngine):
         )
 
     def env_vars(self, spec: DatabaseSpec) -> dict[str, str]:
-        p = spec.env_prefix
-        out = {f"{p}_PORT": str(spec.host_port), f"{p}_DB": spec.database or ""}
+        prefix = spec.env_prefix
+        out = {
+            f"{prefix}_PORT": str(spec.host_port),
+            f"{prefix}_DB": spec.database or "",
+        }
         if spec.auth:
-            out[f"{p}_USER"] = spec.username or ""
-            out[f"{p}_PASS"] = spec.password or ""
+            out[f"{prefix}_USER"] = spec.username or ""
+            out[f"{prefix}_PASS"] = spec.password or ""
         return out

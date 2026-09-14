@@ -79,7 +79,7 @@ class Setting:
 class Registry:
     def __init__(self, settings: tuple[Setting, ...], sections: dict[str, str]) -> None:
         self._settings = settings
-        self._by_name = {s.name: s for s in settings}
+        self._by_name = {setting.name: setting for setting in settings}
         self.sections = sections
 
     def __iter__(self) -> Iterator[Setting]:
@@ -97,7 +97,7 @@ class Registry:
             ) from None
 
     def in_section(self, section: str) -> list[Setting]:
-        return [s for s in self._settings if s.section == section]
+        return [setting for setting in self._settings if setting.section == section]
 
 
 AGENT = Registry(

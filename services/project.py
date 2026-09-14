@@ -87,10 +87,12 @@ class AgentProject:
         env = EnvFile.load(env_path)
         try:
             data = json.loads(db_path.read_text(encoding="utf-8"))
-        except (OSError, ValueError) as e:
-            raise ConfigError(f"{db_path} is not valid JSON.", cause=e) from e
+        except (OSError, ValueError) as error:
+            raise ConfigError(f"{db_path} is not valid JSON.", cause=error) from error
         entries = data.get("databases", []) if isinstance(data, dict) else []
-        databases = [spec_from_entry(e, env) for e in entries if isinstance(e, dict)]
+        databases = [
+            spec_from_entry(entry, env) for entry in entries if isinstance(entry, dict)
+        ]
         facts = ComposeFacts(path / COMPOSE_FILE)
         project = cls(path, env, databases, facts.host_gateway)
         project._ca_bundle = facts.ca_bundle
@@ -108,20 +110,20 @@ class AgentProject:
 
     @property
     def managed(self) -> list[DatabaseSpec]:
-        return [d for d in self.databases if d.managed]
+        return [database for database in self.databases if database.managed]
 
     @property
     def needs_docker_socket(self) -> bool:
-        return any(d.engine == "docker-volume" for d in self.databases)
+        return any(database.engine == "docker-volume" for database in self.databases)
 
     @property
     def sqlite_mounts(self) -> list[tuple[str, str]]:
         mounts: list[tuple[str, str]] = []
-        for d in self.databases:
-            if d.engine == "sqlite":
-                m = SqliteEngine.mount_for(d)
-                if m and m not in mounts:
-                    mounts.append(m)
+        for database in self.databases:
+            if database.engine == "sqlite":
+                mount = SqliteEngine.mount_for(database)
+                if mount and mount not in mounts:
+                    mounts.append(mount)
         return mounts
 
     def validate(self) -> None:
@@ -132,12 +134,12 @@ class AgentProject:
                 hint=f"Path is resolved from {self.path}; use an absolute path otherwise.",
             )
         seen: set[str] = set()
-        for d in self.managed:
-            if d.host in seen:
+        for database in self.managed:
+            if database.host in seen:
                 raise ConfigError(
-                    f"Two managed databases share the service name '{d.host}'."
+                    f"Two managed databases share the service name '{database.host}'."
                 )
-            seen.add(d.host or "")
+            seen.add(database.host or "")
 
     def add(self, spec: DatabaseSpec, engine: DbEngine) -> None:
         if spec.managed:
@@ -146,7 +148,9 @@ class AgentProject:
         self.validate()
 
     def remove(self, spec: DatabaseSpec, engine: DbEngine) -> None:
-        self.databases = [d for d in self.databases if d.id != spec.id]
+        self.databases = [
+            database for database in self.databases if database.id != spec.id
+        ]
         if spec.managed and spec.host:
             self.env.remove_prefix(spec.env_prefix)
 
@@ -159,7 +163,7 @@ class AgentProject:
         return setting.from_env(self.env.get(setting.env))
 
     def settings(self) -> dict[str, Any]:
-        return {s.name: self.setting(s.name) for s in self.registry}
+        return {setting.name: self.setting(setting.name) for setting in self.registry}
 
     def set(self, name: str, value: Any) -> None:
         setting = self.registry.get(name)
@@ -180,9 +184,11 @@ class AgentProject:
     @property
     def extra_env(self) -> list[str]:
         return [
-            s.env
-            for s in self.registry
-            if s.env and not s.core and self.env.get(s.env) is not None
+            setting.env
+            for setting in self.registry
+            if setting.env
+            and not setting.core
+            and self.env.get(setting.env) is not None
         ]
 
     _ca_bundle: str | None = None
@@ -201,9 +207,11 @@ class AgentProject:
 
     def find(self, id_or_name: str) -> DatabaseSpec:
         matches = [
-            d
-            for d in self.databases
-            if d.id == id_or_name or d.id.startswith(id_or_name) or d.name == id_or_name
+            database
+            for database in self.databases
+            if database.id == id_or_name
+            or database.id.startswith(id_or_name)
+            or database.name == id_or_name
         ]
         if not matches:
             raise ValidationError(
@@ -262,7 +270,7 @@ class DashboardProject:
         return setting.from_env(self.env.get(setting.env or ""))
 
     def settings(self) -> dict[str, Any]:
-        return {s.name: self.setting(s.name) for s in self.registry}
+        return {setting.name: self.setting(setting.name) for setting in self.registry}
 
     def set(self, name: str, value: Any) -> None:
         setting = self.registry.get(name)
@@ -299,7 +307,7 @@ class DashboardProject:
         return providers
 
     def add_provider(self, provider: AuthProvider) -> None:
-        if any(p.id == provider.id for p in self.providers):
+        if any(existing.id == provider.id for existing in self.providers):
             raise ValidationError(
                 f"A provider named '{provider.id}' already exists.",
                 hint="Remove it first: portabase dashboard auth remove",
@@ -315,7 +323,10 @@ class DashboardProject:
             self.env.set(f"{prefix}_{env_map[field_name]}", raw)
 
     def remove_provider(self, provider_id: str) -> AuthProvider:
-        match = next((p for p in self.providers if p.id == provider_id), None)
+        match = next(
+            (provider for provider in self.providers if provider.id == provider_id),
+            None,
+        )
         if match is None:
             raise ValidationError(
                 f"No provider named '{provider_id}'.",

@@ -21,8 +21,8 @@ class Prompt(Component):
         answer = questionary.text(
             message,
             default="" if default is None else str(default),
-            validate=lambda v: (
-                v.strip().lstrip("-").isdigit() or "Enter a whole number"
+            validate=lambda value: (
+                value.strip().lstrip("-").isdigit() or "Enter a whole number"
             ),
             style=self.style,
         ).ask()

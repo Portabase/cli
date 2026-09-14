@@ -7,7 +7,7 @@ from typing import Any
 
 from core.fields import Field
 from core.specs import DatabaseSpec
-from core.utils import generate_password
+from core.utils import escape_yaml_double_quoted, generate_password
 from services.ports import PortAllocator
 
 STANDARD_EXISTING_FIELDS = (
@@ -53,9 +53,9 @@ class DbEngine(ABC):
     def fields_existing(self) -> list[Field]:
         return [
             Field("port", "Port", "int", default=self.default_port)
-            if f.name == "port"
-            else f
-            for f in STANDARD_EXISTING_FIELDS
+            if field.name == "port"
+            else field
+            for field in STANDARD_EXISTING_FIELDS
         ]
 
     def fields_new(self) -> list[Field]:
@@ -83,12 +83,12 @@ class DbEngine(ABC):
         )
 
     def env_vars(self, spec: DatabaseSpec) -> dict[str, str]:
-        p = spec.env_prefix
+        prefix = spec.env_prefix
         return {
-            f"{p}_PORT": str(spec.host_port),
-            f"{p}_DB": spec.database or "",
-            f"{p}_USER": spec.username or "",
-            f"{p}_PASS": spec.password or "",
+            f"{prefix}_PORT": str(spec.host_port),
+            f"{prefix}_DB": spec.database or "",
+            f"{prefix}_USER": spec.username or "",
+            f"{prefix}_PASS": spec.password or "",
         }
 
     def template_ctx(
@@ -127,9 +127,11 @@ class DbEngine(ABC):
         return f"{spec.host}:{spec.port}"
 
     def non_default_options(self, spec: DatabaseSpec) -> dict[str, Any]:
-        defaults = {f.name: f.default for f in self.option_fields()}
+        defaults = {field.name: field.default for field in self.option_fields()}
         return {
-            k: v for k, v in spec.options.items() if k in defaults and v != defaults[k]
+            key: value
+            for key, value in spec.options.items()
+            if key in defaults and value != defaults[key]
         }
 
     @staticmethod
@@ -144,7 +146,7 @@ class DbEngine(ABC):
     @staticmethod
     def var(spec: DatabaseSpec, suffix: str, value: Any, inline: bool) -> str:
         if inline:
-            return str(value if value is not None else "")
+            return escape_yaml_double_quoted(str(value if value is not None else ""))
         return f"${{{spec.env_prefix}_{suffix}}}"
 
 

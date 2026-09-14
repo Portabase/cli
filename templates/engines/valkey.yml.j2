@@ -2,10 +2,10 @@
     image: valkey/valkey:latest
     restart: unless-stopped
 {%- if auth %}
-    command: --requirepass "{{ password_var }}"
+    command: ["valkey-server", "--requirepass", "{{ password_var }}"]
 {%- else %}
     environment:
-      - ALLOW_EMPTY_PASSWORD=yes
+      - "ALLOW_EMPTY_PASSWORD=yes"
 {%- endif %}
     ports:
       - "{{ port_var }}:6379"

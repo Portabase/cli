@@ -183,7 +183,10 @@ class DbRemoveCommand(_DbCommand):
             return
 
         if target is None:
-            choices = [f"{d.name} ({d.engine}) [{d.id[:8]}]" for d in project.databases]
+            choices = [
+                f"{database.name} ({database.engine}) [{database.id[:8]}]"
+                for database in project.databases
+            ]
             picked = self.ui.form().choice(
                 "Which database to remove?", choices, name="id"
             )
@@ -231,23 +234,26 @@ class DbListCommand(_DbCommand):
             self.ui.warning("No databases configured.")
             return
         rows = []
-        for d in project.databases:
-            engine = self.engines.get(d.engine)
+        for database in project.databases:
+            engine = self.engines.get(database.engine)
             opts = ", ".join(
-                f"{k}={v}" for k, v in engine.non_default_options(d).items()
+                f"{key}={value}"
+                for key, value in engine.non_default_options(database).items()
             )
             user = (
-                "N/A" if d.engine in ("sqlite", "docker-volume") else (d.username or "")
+                "N/A"
+                if database.engine in ("sqlite", "docker-volume")
+                else (database.username or "")
             )
             rows.append(
                 [
-                    d.name,
-                    d.database or "",
-                    d.engine,
-                    engine.describe(d),
+                    database.name,
+                    database.database or "",
+                    database.engine,
+                    engine.describe(database),
                     user,
                     opts,
-                    d.id[:8] + "...",
+                    database.id[:8] + "...",
                 ]
             )
         self.ui.table(

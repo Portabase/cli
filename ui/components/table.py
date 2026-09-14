@@ -12,8 +12,8 @@ class DataTable(Component):
         self, columns: list[str], rows: list[list[str]], *, title: str | None = None
     ) -> None:
         table = Table(title=title)
-        for i, col in enumerate(columns):
-            table.add_column(col, style=_STYLES[i % len(_STYLES)])
+        for index, col in enumerate(columns):
+            table.add_column(col, style=_STYLES[index % len(_STYLES)])
         for row in rows:
-            table.add_row(*[str(c) for c in row])
+            table.add_row(*[str(cell) for cell in row])
         self.console.print(table)

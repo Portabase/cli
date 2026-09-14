@@ -7,7 +7,7 @@
       - {{ volume }}:/data
 {%- if auth %}
     environment:
-      - REDIS_PASSWORD={{ password_var }}
+      - "REDIS_PASSWORD={{ password_var }}"
     command: ["redis-server", "--requirepass", "{{ password_var }}", "--appendonly", "yes"]
 {%- else %}
     command: ["redis-server", "--appendonly", "yes"]

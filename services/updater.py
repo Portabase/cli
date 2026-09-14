@@ -34,7 +34,8 @@ class Release:
         return cls(
             tag=str(data.get("tag_name", "")).lstrip("v"),
             assets={
-                a["name"]: a["browser_download_url"] for a in data.get("assets", [])
+                asset["name"]: asset["browser_download_url"]
+                for asset in data.get("assets", [])
             },
             prerelease=bool(data.get("prerelease", False)),
         )
@@ -98,8 +99,8 @@ class UpdateChecker:
 
     def _read_cache(self) -> Release | None:
         try:
-            with open(self.cache_file, encoding="utf-8") as f:
-                data = json.load(f)
+            with open(self.cache_file, encoding="utf-8") as file:
+                data = json.load(file)
             if time.time() - float(data.get("checked_at", 0)) > CACHE_TTL:
                 return None
             if data.get("channel_pre") != self.include_prerelease:
@@ -115,7 +116,7 @@ class UpdateChecker:
     def _write_cache(self, release: Release) -> None:
         try:
             self.cache_file.parent.mkdir(parents=True, exist_ok=True)
-            with open(self.cache_file, "w", encoding="utf-8") as f:
+            with open(self.cache_file, "w", encoding="utf-8") as file:
                 json.dump(
                     {
                         "checked_at": time.time(),
@@ -124,7 +125,7 @@ class UpdateChecker:
                         "assets": release.assets,
                         "prerelease": release.prerelease,
                     },
-                    f,
+                    file,
                 )
         except OSError:
             pass
@@ -190,8 +191,8 @@ class Updater:
                 f"{name} not listed in {self.CHECKSUMS_ASSET}; refusing to install."
             )
         digest = hashlib.sha256()
-        with open(path, "rb") as f:
-            for chunk in iter(lambda: f.read(1 << 20), b""):
+        with open(path, "rb") as file:
+            for chunk in iter(lambda: file.read(1 << 20), b""):
                 digest.update(chunk)
         if digest.hexdigest() != expected:
             raise UpdateError(
@@ -218,5 +219,7 @@ class Updater:
                     subprocess.run(["sudo", "mv", str(target), str(backup)], check=True)
                 subprocess.run(["sudo", "mv", str(tmp), str(target)], check=True)
                 subprocess.run(["sudo", "chmod", "+x", str(target)], check=True)
-        except (OSError, subprocess.CalledProcessError) as e:
-            raise UpdateError(f"Could not install to {target}: {e}", cause=e) from e
+        except (OSError, subprocess.CalledProcessError) as error:
+            raise UpdateError(
+                f"Could not install to {target}: {error}", cause=error
+            ) from error

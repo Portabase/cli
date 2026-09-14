@@ -8,9 +8,9 @@
     volumes:
       - {{ volume }}:/var/lib/postgresql/data
     environment:
-      - POSTGRES_DB={{ db_var }}
-      - POSTGRES_USER={{ user_var }}
-      - POSTGRES_PASSWORD={{ password_var }}
+      - "POSTGRES_DB={{ db_var }}"
+      - "POSTGRES_USER={{ user_var }}"
+      - "POSTGRES_PASSWORD={{ password_var }}"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U {{ user_var }} -d {{ db_var }}"]
       interval: 10s

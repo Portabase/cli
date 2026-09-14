@@ -125,12 +125,14 @@ class AuthAddCommand(_AuthCommand):
             "host": host,
         }
         fields = ap.OIDC_FIELDS if provider_kind == "oidc" else ap.OAUTH_FIELDS
-        allowed = {f.name for f in fields}
+        allowed = {field.name for field in fields}
         stray = sorted(
-            k for k, v in values.items() if v is not None and k not in allowed
+            key
+            for key, value in values.items()
+            if value is not None and key not in allowed
         )
         if stray:
-            flags = ", ".join("--" + k for k in stray)
+            flags = ", ".join("--" + name for name in stray)
             raise ValidationError(f"Not applicable to {provider_kind}: {flags}.")
 
         project = self.load(path)
@@ -157,13 +159,13 @@ class AuthListCommand(_AuthCommand):
             ["Kind", "Id", "Title", "Issuer / provider", "Callback"],
             [
                 [
-                    p.kind,
-                    p.id,
-                    p.values.get("title", ""),
-                    p.values.get("issuer", p.id),
-                    project.callback_url(p.id),
+                    provider.kind,
+                    provider.id,
+                    provider.values.get("title", ""),
+                    provider.values.get("issuer", provider.id),
+                    project.callback_url(provider.id),
                 ]
-                for p in providers
+                for provider in providers
             ],
             title=f"Login providers for {project.path.name}",
         )
@@ -188,7 +190,7 @@ class AuthRemoveCommand(_AuthCommand):
             if not providers:
                 self.ui.warning("No login provider to remove.")
                 return
-            choices = [f"{p.id} ({p.kind})" for p in providers]
+            choices = [f"{provider.id} ({provider.kind})" for provider in providers]
             picked = self.ui.form().choice(
                 "Which provider to remove?", choices, name="id"
             )

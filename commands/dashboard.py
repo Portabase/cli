@@ -179,7 +179,7 @@ class DashboardCreateCommand(_DashboardCommand):
 
         provided = read_secret_flags(cfg.DASHBOARD, settings)
         apply_settings(self.ui, project, provided)
-        explicit = any(v is not None for v in provided.values())
+        explicit = any(value is not None for value in provided.values())
         if (
             not self.ui.non_interactive
             and not explicit
@@ -191,9 +191,9 @@ class DashboardCreateCommand(_DashboardCommand):
 
         rows.append(("Access URL", project.setting("url")))
         rows += [
-            (s.field.prompt, display(s, project.setting(s.name)))
-            for s in cfg.DASHBOARD
-            if s.name != "url" and project.env.get(s.env or "") is not None
+            (setting.field.prompt, display(setting, project.setting(setting.name)))
+            for setting in cfg.DASHBOARD
+            if setting.name != "url" and project.env.get(setting.env or "") is not None
         ]
         rows.append(("Files to Create", "docker-compose.yml, .env"))
         self.ui.summary(rows, title="SUMMARY")
@@ -270,13 +270,13 @@ class DashboardShowCommand(_DashboardCommand):
                 ["Kind", "Id", "Title", "Issuer / provider", "Callback"],
                 [
                     [
-                        p.kind,
-                        p.id,
-                        p.values.get("title", ""),
-                        p.values.get("issuer", p.id),
-                        project.callback_url(p.id),
+                        provider.kind,
+                        provider.id,
+                        provider.values.get("title", ""),
+                        provider.values.get("issuer", provider.id),
+                        project.callback_url(provider.id),
                     ]
-                    for p in providers
+                    for provider in providers
                 ],
                 title="LOGIN PROVIDERS",
             )

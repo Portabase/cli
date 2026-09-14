@@ -8,11 +8,11 @@
     volumes:
       - {{ volume }}:/var/lib/firebird/data
     environment:
-      - FIREBIRD_DATABASE={{ db_var }}
-      - FIREBIRD_USER={{ user_var }}
-      - FIREBIRD_PASSWORD={{ password_var }}
-      - FIREBIRD_ROOT_PASSWORD={{ root_password_var }}
-      - FIREBIRD_DATABASE_DEFAULT_CHARSET=UTF8
+      - "FIREBIRD_DATABASE={{ db_var }}"
+      - "FIREBIRD_USER={{ user_var }}"
+      - "FIREBIRD_PASSWORD={{ password_var }}"
+      - "FIREBIRD_ROOT_PASSWORD={{ root_password_var }}"
+      - "FIREBIRD_DATABASE_DEFAULT_CHARSET=UTF8"
     healthcheck:
       test: ["CMD-SHELL", "nc -z localhost 3050"]
       interval: 10s

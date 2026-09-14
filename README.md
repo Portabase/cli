@@ -76,7 +76,7 @@ portabase dashboard auth add|list|remove NAME
 portabase start|stop|restart|logs|uninstall|build PATH
 ```
 
-`portabase db` still works for one release as an alias of `portabase agent db`.
+`portabase db` was removed: database commands only apply to an agent, use `portabase agent db`.
 
 ## Upgrading from 26.08 or earlier
 

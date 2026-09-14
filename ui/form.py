@@ -16,14 +16,18 @@ class Form:
         self.prompt = prompt
         self.non_interactive = non_interactive
         self._askers: dict[str, Callable[[Field], Any]] = {
-            "text": lambda f: self.prompt.text(f.prompt, default=f.default),
-            "int": lambda f: self.prompt.integer(f.prompt, default=f.default),
-            "secret": lambda f: self.prompt.secret(f.prompt),
-            "bool": lambda f: self.prompt.confirm(f.prompt, default=bool(f.default)),
-            "choice": lambda f: self.prompt.select(
-                f.prompt, f.choices, default=f.default
+            "text": lambda field: self.prompt.text(field.prompt, default=field.default),
+            "int": lambda field: self.prompt.integer(
+                field.prompt, default=field.default
             ),
-            "path": lambda f: self.prompt.path(f.prompt, default=f.default),
+            "secret": lambda field: self.prompt.secret(field.prompt),
+            "bool": lambda field: self.prompt.confirm(
+                field.prompt, default=bool(field.default)
+            ),
+            "choice": lambda field: self.prompt.select(
+                field.prompt, field.choices, default=field.default
+            ),
+            "path": lambda field: self.prompt.path(field.prompt, default=field.default),
         }
 
     def ask(self, field: Field, value: Any | None = None) -> Any:
@@ -41,7 +45,7 @@ class Form:
     def collect(
         self, fields: Sequence[Field], values: dict[str, Any]
     ) -> dict[str, Any]:
-        return {f.name: self.ask(f, values.get(f.name)) for f in fields}
+        return {field.name: self.ask(field, values.get(field.name)) for field in fields}
 
     def text(
         self, prompt: str, *, value=None, default=None, validator=None, name="value"
@@ -84,8 +88,8 @@ class Form:
                 raise UserAbort()
             try:
                 return self._coerce_and_validate(field, answer)
-            except ValidationError as e:
-                self.prompt.console.print(f"[danger]✖ {e.message}[/danger]")
+            except ValidationError as error:
+                self.prompt.console.print(f"[danger]✖ {error.message}[/danger]")
 
     def _coerce_and_validate(self, field: Field, value: Any) -> Any:
         value = self._coerce(field, value)
@@ -103,15 +107,15 @@ class Form:
         if field.kind == "int" and not isinstance(value, int):
             try:
                 return int(str(value).strip())
-            except ValueError as e:
+            except ValueError as error:
                 raise ValidationError(
                     f"{field.flag} must be a whole number, got {value!r}"
-                ) from e
+                ) from error
         if field.kind == "bool" and not isinstance(value, bool):
-            s = str(value).strip().lower()
-            if s in _TRUE:
+            normalized = str(value).strip().lower()
+            if normalized in _TRUE:
                 return True
-            if s in _FALSE:
+            if normalized in _FALSE:
                 return False
             raise ValidationError(f"{field.flag} must be true or false, got {value!r}")
         if field.kind in ("text", "secret", "path", "choice"):
