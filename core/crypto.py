@@ -5,8 +5,7 @@ import os
 import struct
 from pathlib import Path
 
-from cryptography.exceptions import InvalidTag
-from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+from Crypto.Cipher import AES
 
 from core.errors import PortabaseError
 
@@ -81,7 +80,6 @@ def _read_header(handle) -> tuple[bytes, int]:
 
 
 def decrypt_enc_file(enc_path: Path, out_path: Path, key: bytes) -> None:
-    aesgcm = AESGCM(key)
     tmp_path = out_path.with_name(out_path.name + ".part")
 
     try:
@@ -119,9 +117,12 @@ def decrypt_enc_file(enc_path: Path, out_path: Path, key: bytes) -> None:
                         )
 
                     nonce = base_nonce + struct.pack(">I", chunk_index)
+                    cipher = AES.new(key, AES.MODE_GCM, nonce=nonce)
                     try:
-                        plaintext = aesgcm.decrypt(nonce, ciphertext, None)
-                    except InvalidTag as exc:
+                        plaintext = cipher.decrypt_and_verify(
+                            ciphertext[:-_TAG_LEN], ciphertext[-_TAG_LEN:]
+                        )
+                    except ValueError as exc:
                         raise DecryptionError(
                             f"Authentication failed on chunk {chunk_index} "
                             "(wrong key or corrupt data)."

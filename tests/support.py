@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+from Crypto.Cipher import AES
 
 from core.errors import NetworkError
 from core.fields import Field
@@ -113,11 +113,11 @@ def encrypt(plain: bytes, key: bytes, chunk_size: int = 4) -> bytes:
         "chunk_size": chunk_size,
     }
     out = json.dumps(header).encode() + b"\n"
-    aes = AESGCM(key)
     for index, start in enumerate(range(0, len(plain), chunk_size)):
         nonce = base_nonce + struct.pack(">I", index)
-        ciphertext = aes.encrypt(nonce, plain[start : start + chunk_size], None)
-        out += struct.pack(">I", len(ciphertext)) + ciphertext
+        cipher = AES.new(key, AES.MODE_GCM, nonce=nonce)
+        ciphertext, tag = cipher.encrypt_and_digest(plain[start : start + chunk_size])
+        out += struct.pack(">I", len(ciphertext) + len(tag)) + ciphertext + tag
     return out
 
 
