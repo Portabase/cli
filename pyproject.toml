@@ -5,12 +5,69 @@ description = "The official command line interface (CLI) for managing and deploy
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "rich>=14.2.0",
     "typer>=0.20.0",
-    "pyinstaller>=6.17.0",
-    "requests>=2.32.5",
-    "pyyaml >=6.0.0",
+    "rich>=14.2.0",
     "questionary>=2.1.0",
+    "requests>=2.32.5",
     "pyyaml>=6.0.3",
-    "cryptography>=44.0.0"
+    "cryptography>=44.0.0",
+    "jinja2>=3.1",
 ]
+
+[dependency-groups]
+dev = [
+    "pyinstaller>=6.17.0",
+    "ruff>=0.16.0",
+    "pytest>=8.3",
+    "mypy>=1.15",
+]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 88
+extend-exclude = [".venv", "build", "dist", "docs", "*.md", "*.spec"]
+
+[tool.ruff.lint]
+select = [
+    "E", "F", "W",
+    "I",
+    "UP",
+    "B",
+    "BLE",
+    "S110",
+    "E722",
+    "TID251",
+    "SIM",
+    "TRY201",
+    "PLW1510",
+]
+ignore = [
+    "B008",
+    "E501",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"ui/**" = ["TID251"]
+
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+"rich.prompt".msg = "Use ui.form() / ui.confirm() instead."
+"rich.console".msg = "Only ui/ may build a Console. Use the UI facade."
+"typer.prompt".msg = "Use ui.form() instead."
+"typer.confirm".msg = "Use ui.confirm() instead."
+
+[tool.ruff.lint.isort]
+known-first-party = ["commands", "core", "engines", "services", "ui"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["*.py"]
+python_functions = ["[!_]*"]
+pythonpath = ["."]
+addopts = "-q --import-mode=importlib"
+
+[tool.mypy]
+python_version = "3.12"
+files = ["commands", "core", "engines", "services", "ui", "tests", "main.py"]
+ignore_missing_imports = true
+warn_unused_ignores = true
+warn_redundant_casts = true

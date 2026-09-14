@@ -1,0 +1,28 @@
+name: Plumber
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions: {}
+
+concurrency:
+  group: plumber-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  audit:
+    name: audit
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: getplumber/plumber@7ad9d267ee5a00163cec9e5c749a088d5f565167 # v0.4.26
+        with:
+          score-push: true
+          upload-sarif: false
+          soft-fail: true

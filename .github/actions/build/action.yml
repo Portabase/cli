@@ -1,0 +1,45 @@
+name: Build the CLI binary
+description: >-
+  Build the standalone binary from portabase.spec and check that it can read
+  its own bundled metadata. A binary that reports no version cannot resolve
+  its templates either, so it is rejected here rather than shipped.
+
+inputs:
+  name:
+    description: Binary name, without extension.
+    required: false
+    default: portabase
+
+outputs:
+  path:
+    description: Path to the built binary.
+    value: ${{ steps.build.outputs.path }}
+
+runs:
+  using: composite
+  steps:
+    - id: build
+      shell: bash
+      env:
+        PORTABASE_BINARY_NAME: ${{ inputs.name }}
+      run: |
+        set -euo pipefail
+        rm -rf build dist
+        uv run pyinstaller portabase.spec
+
+        case "$(uname -s)" in
+          MINGW* | MSYS* | CYGWIN*) EXT=".exe" ;;
+          *) EXT="" ;;
+        esac
+        BINARY="dist/${PORTABASE_BINARY_NAME}${EXT}"
+        test -f "$BINARY"
+        echo "path=$BINARY" >> "$GITHUB_OUTPUT"
+
+    - shell: bash
+      run: |
+        set -euo pipefail
+        VERSION=$("${{ steps.build.outputs.path }}" --version | head -1)
+        echo "$VERSION"
+        case "$VERSION" in
+          *unknown*) echo "::error::binary cannot read its bundled version"; exit 1 ;;
+        esac

@@ -1,0 +1,17 @@
+  {{ name }}:
+    image: mcr.microsoft.com/azure-sql-edge:latest
+    restart: unless-stopped
+    networks:
+      - portabase
+    ports:
+      - "{{ port_var }}:1433"
+    environment:
+      - "ACCEPT_EULA=Y"
+      - "MSSQL_SA_PASSWORD={{ password_var }}"
+    volumes:
+      - {{ volume }}:/var/opt/mssql
+    healthcheck:
+      test: ["CMD-SHELL", "cat /proc/net/tcp6 | grep -q '059901' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 20

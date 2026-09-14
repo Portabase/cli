@@ -1,756 +1,288 @@
-import re
-import secrets
-import uuid
+from __future__ import annotations
+
+import sys
 from pathlib import Path
+from typing import Annotated
 
-import questionary
 import typer
-from rich.panel import Panel
-from rich.prompt import IntPrompt, Prompt
-from rich.table import Table
 
-from core.config import add_db_to_json, load_db_config, save_db_config, write_env_file
-from core.docker import ensure_network
-from core.utils import (
-    console,
-    generate_password,
-    get_free_port,
-    questionary_style,
-    validate_work_dir,
-)
-from templates.compose import (
-    AGENT_FIREBIRD_SNIPPET,
-    AGENT_MARIADB_SNIPPET,
-    AGENT_MONGODB_AUTH_SNIPPET,
-    AGENT_MONGODB_SNIPPET,
-    AGENT_MSSQL_SNIPPET,
-    AGENT_POSTGRES_SNIPPET,
-    AGENT_REDIS_AUTH_SNIPPET,
-    AGENT_REDIS_SNIPPET,
-    AGENT_VALKEY_AUTH_SNIPPET,
-    AGENT_VALKEY_SNIPPET,
-)
+from commands.base import Command, CommandGroup
+from commands.flows.add_database import AddDatabaseFlow
+from engines import EngineRegistry
+from services.docker import DockerRunner
+from services.ports import PortAllocator
+from services.project import AgentProject
+from services.renderer import ComposeRenderer, WriteReport
+from services.telemetry import Telemetry
+from services.templates import TemplateRepository
+from ui import UI
 
-app = typer.Typer(help="Manage databases configuration.")
-
-DOCKER_SOCKET_MOUNT = "/var/run/docker.sock:/var/run/docker.sock"
+NameArg = Annotated[Path, typer.Argument(help="Agent folder")]
 
 
-def ensure_docker_socket(path: Path):
-    """Mount the Docker socket on the agent's app service if not already present."""
-    compose_path = path / "docker-compose.yml"
-    if not compose_path.exists():
-        console.print(
-            "[warning]⚠ docker-compose.yml not found. Add "
-            f"[bold]{DOCKER_SOCKET_MOUNT}[/bold] to the agent volumes manually.[/warning]"
-        )
-        return
-
-    content = compose_path.read_text()
-    if DOCKER_SOCKET_MOUNT in content:
-        return
-
-    anchor = "- ./databases.json:/config/config.json"
-    lines = content.splitlines(keepends=True)
-    new_lines = []
-    inserted = False
-    for line in lines:
-        new_lines.append(line)
-        if not inserted and anchor in line:
-            indent = line[: len(line) - len(line.lstrip())]
-            new_lines.append(f"{indent}- {DOCKER_SOCKET_MOUNT}\n")
-            inserted = True
-
-    if inserted:
-        compose_path.write_text("".join(new_lines))
-        console.print(
-            f"[info]ℹ Mounted Docker socket ([bold]{DOCKER_SOCKET_MOUNT}[/bold]) "
-            "on the agent.[/info]"
-        )
-    else:
-        console.print(
-            "[warning]⚠ Could not locate the agent volumes block. Add "
-            f"[bold]{DOCKER_SOCKET_MOUNT}[/bold] to docker-compose.yml manually.[/warning]"
+def report_write(ui: UI, report: WriteReport) -> None:
+    if report.backed_up:
+        ui.warning(
+            f"Legacy compose backed up to {report.backed_up.name}. "
+            "Manual edits belong in docker-compose.override.yml."
         )
 
 
-@app.command("list")
-def list_dbs(name: str = typer.Argument(..., help="Name of the agent")):
-    path = Path(name).resolve()
-    validate_work_dir(path)
+class _DbCommand(Command):
+    panel = "Configuration"
+    no_args_is_help = True
 
-    config = load_db_config(path)
-    dbs = config.get("databases", [])
+    def __init__(
+        self,
+        ui: UI,
+        telemetry: Telemetry,
+        engines: EngineRegistry,
+        ports: PortAllocator,
+        templates: TemplateRepository,
+        renderer: ComposeRenderer,
+        docker: DockerRunner,
+    ) -> None:
+        super().__init__(ui, telemetry)
+        self.engines = engines
+        self.ports = ports
+        self.templates = templates
+        self.renderer = renderer
+        self.docker = docker
 
-    if not dbs:
-        console.print("[warning]No databases configured.[/warning]")
-        return
+    def render_and_write(self, project: AgentProject) -> None:
+        with self.ui.status("Rendering configuration..."):
+            result = self.renderer.render_agent(project)
+            project.save_state()
+            report = result.write(project.path)
+        report_write(self.ui, report)
 
-    table = Table(title=f"Databases for {name}")
-    table.add_column("Display Name", style="cyan")
-    table.add_column("Database", style="blue")
-    table.add_column("Type", style="magenta")
-    table.add_column("Host:Port", style="green")
-    table.add_column("User", style="white")
-    table.add_column("ID", style="dim")
 
-    for db in dbs:
-        db_type = db.get("type", "N/A")
-        if db_type == "sqlite":
-            host_port = "Local File"
-        elif db_type == "docker-volume":
-            host_port = f"volume: {db.get('volume_name', 'N/A')}"
+class DbAddCommand(_DbCommand):
+    name, help = "add", "Add a database to an agent."
+
+    def run(
+        self,
+        name: NameArg,
+        engine: Annotated[
+            str | None, typer.Option("--engine", "-e", help="Database engine")
+        ] = None,
+        mode: Annotated[
+            str | None, typer.Option("--mode", help="new (container) or existing")
+        ] = None,
+        auth: Annotated[
+            bool | None,
+            typer.Option(
+                "--auth/--no-auth", help="Auth variant for mongodb/redis/valkey"
+            ),
+        ] = None,
+        label: Annotated[
+            str | None, typer.Option("--label", help="Display name")
+        ] = None,
+        host: Annotated[
+            str | None, typer.Option("--host", help="Host of an existing database")
+        ] = None,
+        port: Annotated[
+            int | None, typer.Option("--port", help="Port of an existing database")
+        ] = None,
+        database: Annotated[
+            str | None, typer.Option("--database", help="Database name")
+        ] = None,
+        user: Annotated[str | None, typer.Option("--user", help="Username")] = None,
+        password: Annotated[
+            str | None, typer.Option("--password", help="Prefer --password-stdin")
+        ] = None,
+        password_stdin: Annotated[
+            bool, typer.Option("--password-stdin", help="Read password from stdin")
+        ] = False,
+        path: Annotated[
+            str | None, typer.Option("--path", help="SQLite file path (existing)")
+        ] = None,
+        db_name: Annotated[
+            str | None, typer.Option("--name", help="SQLite file name (new)")
+        ] = None,
+        volume: Annotated[
+            str | None, typer.Option("--volume", help="Docker volume name")
+        ] = None,
+        container: Annotated[
+            str | None,
+            typer.Option("--container", help="Container to restart after restore"),
+        ] = None,
+        option: Annotated[
+            list[str] | None,
+            typer.Option("--option", "-o", help="Engine option KEY=VALUE (repeatable)"),
+        ] = None,
+    ) -> None:
+        if password_stdin:
+            password = sys.stdin.readline().rstrip("\n")
+        elif password is not None:
+            self.ui.warning(
+                "--password is visible in shell history; prefer --password-stdin."
+            )
+
+        project_path = self.require_project_dir(name)
+        self.templates.resolve()
+        project = AgentProject.load(project_path)
+
+        flow = AddDatabaseFlow(self.ui, self.engines, self.ports)
+        values = {
+            "engine": engine,
+            "mode": mode,
+            "auth": auth,
+            "label": label,
+            "host": host,
+            "port": port,
+            "database": database,
+            "username": user,
+            "password": password,
+            "path": path,
+            "name": db_name,
+            "volume": volume,
+            "container": container,
+            "options": flow.parse_options(option),
+        }
+        spec, eng = flow.collect(values)
+        flow.apply(project, spec, eng)
+        self.render_and_write(project)
+
+        self.ui.success(
+            f"Added {eng.display} database '{spec.name}' ({eng.describe(spec)})."
+        )
+        self.ui.info(
+            f"Restart the agent to apply changes: portabase restart {project_path.name}"
+        )
+
+
+class DbRemoveCommand(_DbCommand):
+    name, help = "remove", "Remove a database from an agent."
+
+    def run(
+        self,
+        name: NameArg,
+        target: Annotated[
+            str | None,
+            typer.Option(
+                "--id", "--name", "-i", help="Database id (or prefix) or display name"
+            ),
+        ] = None,
+        purge_volume: Annotated[
+            bool,
+            typer.Option(
+                "--purge-volume",
+                help="Also delete the Docker volume of a managed database",
+            ),
+        ] = False,
+        yes: Annotated[
+            bool, typer.Option("--yes", "-y", help="Skip confirmation")
+        ] = False,
+    ) -> None:
+        project_path = self.require_project_dir(name)
+        self.templates.resolve()
+        project = AgentProject.load(project_path)
+        if not project.databases:
+            self.ui.warning("No databases to remove.")
+            return
+
+        if target is None:
+            choices = [
+                f"{database.name} ({database.engine}) [{database.id[:8]}]"
+                for database in project.databases
+            ]
+            picked = self.ui.form().choice(
+                "Which database to remove?", choices, name="id"
+            )
+            spec = project.databases[choices.index(picked)]
         else:
-            host_port = f"{db.get('host', 'N/A')}:{db.get('port', 'N/A')}"
-        username = (
-            "N/A"
-            if db_type in ("sqlite", "docker-volume")
-            else db.get("username", "N/A")
-        )
+            spec = project.find(target)
+        engine = self.engines.get(spec.engine)
 
-        table.add_row(
-            db.get("name", "N/A"),
-            db.get("database", db.get("name", "N/A")),
-            db_type,
-            host_port,
-            username,
-            db.get("generated_id", "")[:8] + "...",
-        )
-    console.print(table)
-
-
-@app.command("add")
-def add_db(name: str = typer.Argument(..., help="Name of the agent")):
-    path = Path(name).resolve()
-    validate_work_dir(path)
-    ensure_network("portabase_network")
-
-    console.print(Panel("Add Database to Agent", style="bold blue"))
-
-    while True:
-        storage_kind = questionary.select(
-            "What do you want to configure?",
-            choices=["done", "database", "docker-volume"],
-            default="database",
-            style=questionary_style,
-        ).ask()
-
-        if storage_kind in (None, "done"):
-            break
-
-        if storage_kind == "docker-volume":
-            console.print(
-                "[warning]⚠ Requires the Docker socket mounted on the agent "
-                "([bold]/var/run/docker.sock[/bold]). It will be added to "
-                "docker-compose.yml automatically.[/warning]"
+        if not yes:
+            extra = " and its Docker volume" if (purge_volume and spec.managed) else ""
+            self.confirm_or_abort(
+                f"Remove '{spec.name}' ({engine.describe(spec)}){extra}?", default=False
             )
-            friendly_name = Prompt.ask("Display Name", default="Docker Volume")
-            volume_name = Prompt.ask("Volume Name (e.g. databases_sqlite-data)").strip()
-            while not volume_name:
-                console.print("[danger]✖ Volume Name is required.[/danger]")
-                volume_name = Prompt.ask(
-                    "Volume Name (e.g. databases_sqlite-data)"
-                ).strip()
-            container_name = Prompt.ask(
-                "Container Name (optional, enables auto-restart after restore)",
-                default="",
-            )
-            entry = {
-                "name": friendly_name,
-                "type": "docker-volume",
-                "volume_name": volume_name,
-                "generated_id": str(uuid.uuid4()),
-            }
-            if container_name:
-                entry["container_name"] = container_name
-            ensure_docker_socket(path)
-            add_db_to_json(path, entry)
-            console.print("[success]✔ Added to config[/success]")
-            continue
 
-        mode = Prompt.ask(
-            "Configuration Mode",
-            choices=["new", "existing", "back"],
-            default="existing",
-        )
+        project.remove(spec, engine)
+        self.render_and_write(project)
+        self.ui.success(f"Removed {spec.name}")
 
-        if mode == "back":
-            break
-
-        if mode == "existing":
-            db_type = questionary.select(
-                "Select Database Type",
-                choices=[
-                    "back",
-                    "postgresql",
-                    "postgresql-cluster",
-                    "mysql",
-                    "mariadb",
-                    "sqlite",
-                    "firebird",
-                    "mongodb",
-                    "mssql",
-                ],
-                style=questionary_style,
-            ).ask()
-
-            if db_type == "back":
-                continue
-
-            if not db_type:
-                raise typer.Exit()
-
-            if db_type == "postgresql-cluster":
-                console.print(
-                    "[warning]⚠ Postgres Cluster requires a superuser. "
-                    "Cluster backup/restore uses pg_dumpall, which dumps all "
-                    "databases and global objects (roles, tablespaces). "
-                    "The provided user must be a Postgres superuser.[/warning]"
+        if spec.managed:
+            volume_name = f"{self.docker.project_name(project_path)}_{spec.host}-data"
+            if purge_volume:
+                self.require_docker(self.docker)
+                removed = self.docker.remove_volume(volume_name)
+                self.ui.success(
+                    f"Deleted volume {volume_name}"
+                    if removed
+                    else f"Volume {volume_name} did not exist"
                 )
-
-            friendly_name = Prompt.ask("Display Name", default="External DB")
-
-            if db_type == "sqlite":
-                db_name = Prompt.ask("Database Path (e.g. /data/db.sqlite)")
-                entry = {
-                    "name": friendly_name,
-                    "database": db_name,
-                    "type": db_type,
-                    "generated_id": str(uuid.uuid4()),
-                }
             else:
-                db_name = Prompt.ask("Database Name")
-                host = Prompt.ask("Host", default="localhost")
-                port = IntPrompt.ask(
-                    "Port",
-                    default=5432
-                    if db_type in ["postgresql", "postgresql-cluster"]
-                    else (
-                        3050
-                        if db_type == "firebird"
-                        else (
-                            1433
-                            if db_type == "mssql"
-                            else (3306 if db_type in ["mysql", "mariadb"] else 27017)
-                        )
-                    ),
+                self.ui.info(
+                    f"Data volume kept: {volume_name}. "
+                    f"Delete it with: docker volume rm {volume_name}"
                 )
-                user = Prompt.ask("Username")
-                password = questionary.password(
-                    "Password", style=questionary_style
-                ).ask()
-                if password is None:
-                    raise typer.Exit()
-
-                entry = {
-                    "name": friendly_name,
-                    "database": db_name,
-                    "type": db_type,
-                    "username": user,
-                    "password": password,
-                    "port": port,
-                    "host": host,
-                    "generated_id": str(uuid.uuid4()),
-                }
-
-                if db_type == "postgresql":
-                    console.print(
-                        "[info]ℹ When enabled, omits [bold]--no-owner[/bold] and "
-                        "[bold]--no-privileges[/bold] from the dump. Ownership and role "
-                        "assignments are preserved in the output. By default, these flags "
-                        "are applied to keep restores portable across different users and "
-                        "environments, for example when migrating from one database "
-                        "instance to another.[/info]"
-                    )
-                    keep_ownership = questionary.confirm(
-                        "Keep ownership?",
-                        default=False,
-                        style=questionary_style,
-                    ).ask()
-                    if keep_ownership is None:
-                        raise typer.Exit()
-
-                    console.print(
-                        "[info]ℹ Controls how the target database is cleaned before a "
-                        "restore. [bold]pg_restore --clean[/bold] only drops objects "
-                        "listed in the backup's own table of contents, so anything "
-                        "already present in the target that the dump does not know "
-                        "about survives and can make the restore fail.[/info]"
-                    )
-                    clean_mode = questionary.select(
-                        "Clean mode",
-                        choices=[
-                            questionary.Choice(
-                                "clean - pg_restore --clean --if-exists (default)",
-                                value="clean",
-                            ),
-                            questionary.Choice(
-                                "none - no pre-clean, restore into an empty database",
-                                value="none",
-                            ),
-                            questionary.Choice(
-                                "drop_schemas - drop every non-system schema CASCADE "
-                                "(recommended, works on managed Postgres)",
-                                value="drop_schemas",
-                            ),
-                            questionary.Choice(
-                                "drop_database - DROP DATABASE + CREATE DATABASE "
-                                "(full reset)",
-                                value="drop_database",
-                            ),
-                        ],
-                        default="clean",
-                        style=questionary_style,
-                    ).ask()
-                    if clean_mode is None:
-                        raise typer.Exit()
-                    if clean_mode == "drop_database":
-                        console.print(
-                            "[warning]⚠ drop_database drops the whole target database "
-                            "before restoring. The user must have CREATEDB and own the "
-                            "database, or be a superuser. Most managed Postgres "
-                            "providers do not allow it.[/warning]"
-                        )
-
-                    pg_options = {}
-                    if keep_ownership:
-                        pg_options["keep_ownership"] = True
-                    if clean_mode != "clean":
-                        pg_options["clean_mode"] = clean_mode
-                    if pg_options:
-                        entry["options"] = pg_options
-
-            add_db_to_json(path, entry)
-            break
-        else:
-            db_engine = questionary.select(
-                "Select Database Engine",
-                choices=[
-                    "back",
-                    "postgresql",
-                    "postgresql-cluster",
-                    "mysql",
-                    "mariadb",
-                    "sqlite",
-                    "firebird",
-                    "mongodb",
-                    "redis",
-                    "valkey",
-                    "mssql",
-                ],
-                style=questionary_style,
-            ).ask()
-
-            if db_engine == "back":
-                continue
-
-            if not db_engine:
-                raise typer.Exit()
-
-            db_variant = "no-auth"
-            if db_engine in ["mongodb", "redis", "valkey"]:
-                engine_display = {
-                    "mongodb": "MongoDB",
-                    "redis": "Redis",
-                    "valkey": "Valkey",
-                }[db_engine]
-                db_variant = questionary.select(
-                    f"Select {engine_display} Variant",
-                    choices=["back", "no-auth", "with-auth"],
-                    default="no-auth",
-                    style=questionary_style,
-                ).ask()
-
-                if db_variant == "back":
-                    continue
-
-                if not db_variant:
-                    raise typer.Exit()
-
-            env_vars = {}
-            snippet = ""
-            service_name = ""
-            db_name = ""
-            db_container_path = ""
-            db_user = ""
-            db_pass = ""
-            db_port = 0
-            pg_options = None
-
-            if db_engine == "sqlite":
-                db_name = Prompt.ask("Database Name", default="local")
-                if not db_name.endswith(".sqlite"):
-                    db_name += ".sqlite"
-
-                compose_path = path / "docker-compose.yml"
-                if compose_path.exists():
-                    content = compose_path.read_text()
-                    lines = content.splitlines(keepends=True)
-                    new_lines = []
-                    in_app_service = False
-                    inserted = False
-
-                    for line in lines:
-                        new_lines.append(line)
-                        if not inserted:
-                            if re.search(r"^  app:", line):
-                                in_app_service = True
-                            elif in_app_service and re.search(r"^    volumes:", line):
-                                new_lines.append(
-                                    f"      - ./{db_name}:/config/{db_name}\n"
-                                )
-                                in_app_service = False
-                                inserted = True
-                            elif in_app_service and re.search(r"^  [a-zA-Z]", line):
-                                in_app_service = False
-
-                    with open(compose_path, "w") as f:
-                        f.writelines(new_lines)
-
-                add_db_to_json(
-                    path,
-                    {
-                        "name": db_name,
-                        "database": f"/config/{db_name}",
-                        "type": "sqlite",
-                        "generated_id": str(uuid.uuid4()),
-                    },
-                )
-                console.print(f"[success]✔ Added SQLite database ({db_name})[/success]")
-
-            elif db_engine in ["postgresql", "postgresql-cluster"]:
-                db_port = get_free_port()
-                db_user = "admin"
-                db_pass = generate_password(16)
-                db_name = f"pg_{secrets.token_hex(4)}"
-                service_name = f"db-pg-{secrets.token_hex(2)}"
-                var_prefix = service_name.upper().replace("-", "_")
-                env_vars[f"{var_prefix}_PORT"] = str(db_port)
-                env_vars[f"{var_prefix}_DB"] = db_name
-                env_vars[f"{var_prefix}_USER"] = db_user
-                env_vars[f"{var_prefix}_PASS"] = db_pass
-                snippet = (
-                    AGENT_POSTGRES_SNIPPET.replace("${SERVICE_NAME}", service_name)
-                    .replace("${PORT}", f"${{{var_prefix}_PORT}}")
-                    .replace("${VOL_NAME}", f"{service_name}-data")
-                    .replace("${DB_NAME}", f"${{{var_prefix}_DB}}")
-                    .replace("${USER}", f"${{{var_prefix}_USER}}")
-                    .replace("${PASSWORD}", f"${{{var_prefix}_PASS}}")
-                )
-
-                if db_engine == "postgresql":
-                    console.print(
-                        "[info]ℹ When enabled, omits [bold]--no-owner[/bold] and "
-                        "[bold]--no-privileges[/bold] from the dump. Ownership and role "
-                        "assignments are preserved in the output. By default, these flags "
-                        "are applied to keep restores portable across different users and "
-                        "environments, for example when migrating from one database "
-                        "instance to another.[/info]"
-                    )
-                    keep_ownership = questionary.confirm(
-                        "Keep ownership?",
-                        default=False,
-                        style=questionary_style,
-                    ).ask()
-                    if keep_ownership is None:
-                        raise typer.Exit()
-
-                    console.print(
-                        "[info]ℹ Controls how the target database is cleaned before a "
-                        "restore. [bold]pg_restore --clean[/bold] only drops objects "
-                        "listed in the backup's own table of contents, so anything "
-                        "already present in the target that the dump does not know "
-                        "about survives and can make the restore fail.[/info]"
-                    )
-                    clean_mode = questionary.select(
-                        "Clean mode",
-                        choices=[
-                            questionary.Choice(
-                                "clean - pg_restore --clean --if-exists (default)",
-                                value="clean",
-                            ),
-                            questionary.Choice(
-                                "none - no pre-clean, restore into an empty database",
-                                value="none",
-                            ),
-                            questionary.Choice(
-                                "drop_schemas - drop every non-system schema CASCADE "
-                                "(recommended, works on managed Postgres)",
-                                value="drop_schemas",
-                            ),
-                            questionary.Choice(
-                                "drop_database - DROP DATABASE + CREATE DATABASE "
-                                "(full reset)",
-                                value="drop_database",
-                            ),
-                        ],
-                        default="clean",
-                        style=questionary_style,
-                    ).ask()
-                    if clean_mode is None:
-                        raise typer.Exit()
-                    if clean_mode == "drop_database":
-                        console.print(
-                            "[warning]⚠ drop_database drops the whole target database "
-                            "before restoring. The user must have CREATEDB and own the "
-                            "database, or be a superuser. Most managed Postgres "
-                            "providers do not allow it.[/warning]"
-                        )
-
-                    options = {}
-                    if keep_ownership:
-                        options["keep_ownership"] = True
-                    if clean_mode != "clean":
-                        options["clean_mode"] = clean_mode
-                    if options:
-                        pg_options = options
-
-            elif db_engine in ["mysql", "mariadb"]:
-                db_port = get_free_port()
-                db_user = "admin"
-                db_pass = generate_password(16)
-                db_name = f"mysql_{secrets.token_hex(4)}"
-                service_name = f"db-mariadb-{secrets.token_hex(2)}"
-                var_prefix = service_name.upper().replace("-", "_")
-                env_vars[f"{var_prefix}_PORT"] = str(db_port)
-                env_vars[f"{var_prefix}_DB"] = db_name
-                env_vars[f"{var_prefix}_USER"] = db_user
-                env_vars[f"{var_prefix}_PASS"] = db_pass
-                snippet = (
-                    AGENT_MARIADB_SNIPPET.replace("${SERVICE_NAME}", service_name)
-                    .replace("${PORT}", f"${{{var_prefix}_PORT}}")
-                    .replace("${VOL_NAME}", f"{service_name}-data")
-                    .replace("${DB_NAME}", f"${{{var_prefix}_DB}}")
-                    .replace("${USER}", f"${{{var_prefix}_USER}}")
-                    .replace("${PASSWORD}", f"${{{var_prefix}_PASS}}")
-                )
-
-            elif db_engine == "mongodb":
-                db_port = get_free_port()
-                db_name = f"mongo_{secrets.token_hex(4)}"
-                if db_variant == "with-auth":
-                    db_user = "admin"
-                    db_pass = generate_password(16)
-                    service_name = f"db-mongo-auth-{secrets.token_hex(2)}"
-                    var_prefix = service_name.upper().replace("-", "_")
-                    env_vars[f"{var_prefix}_PORT"] = str(db_port)
-                    env_vars[f"{var_prefix}_DB"] = db_name
-                    env_vars[f"{var_prefix}_USER"] = db_user
-                    env_vars[f"{var_prefix}_PASS"] = db_pass
-                    snippet = (
-                        AGENT_MONGODB_AUTH_SNIPPET.replace(
-                            "${SERVICE_NAME}", service_name
-                        )
-                        .replace("${PORT}", f"${{{var_prefix}_PORT}}")
-                        .replace("${VOL_NAME}", f"{service_name}-data")
-                        .replace("${DB_NAME}", f"${{{var_prefix}_DB}}")
-                        .replace("${USER}", f"${{{var_prefix}_USER}}")
-                        .replace("${PASSWORD}", f"${{{var_prefix}_PASS}}")
-                    )
-                else:
-                    service_name = f"db-mongo-{secrets.token_hex(2)}"
-                    var_prefix = service_name.upper().replace("-", "_")
-                    env_vars[f"{var_prefix}_PORT"] = str(db_port)
-                    env_vars[f"{var_prefix}_DB"] = db_name
-                    snippet = (
-                        AGENT_MONGODB_SNIPPET.replace("${SERVICE_NAME}", service_name)
-                        .replace("${PORT}", f"${{{var_prefix}_PORT}}")
-                        .replace("${VOL_NAME}", f"{service_name}-data")
-                        .replace("${DB_NAME}", f"${{{var_prefix}_DB}}")
-                    )
-
-            elif db_engine == "firebird":
-                db_port = get_free_port()
-                db_user = "alice"
-                db_pass = generate_password(16)
-                db_root_pass = generate_password(16)
-                db_name = "mirror.fdb"
-                db_container_path = f"/var/lib/firebird/data/{db_name}"
-                service_name = f"db-firebird-{secrets.token_hex(2)}"
-                var_prefix = service_name.upper().replace("-", "_")
-                env_vars[f"{var_prefix}_PORT"] = str(db_port)
-                env_vars[f"{var_prefix}_DB"] = db_name
-                env_vars[f"{var_prefix}_USER"] = db_user
-                env_vars[f"{var_prefix}_PASS"] = db_pass
-                env_vars[f"{var_prefix}_ROOT_PASS"] = db_root_pass
-                snippet = (
-                    AGENT_FIREBIRD_SNIPPET.replace("${SERVICE_NAME}", service_name)
-                    .replace("${PORT}", f"${{{var_prefix}_PORT}}")
-                    .replace("${VOL_NAME}", f"{service_name}-data")
-                    .replace("${DB_NAME}", f"${{{var_prefix}_DB}}")
-                    .replace("${USER}", f"${{{var_prefix}_USER}}")
-                    .replace("${PASSWORD}", f"${{{var_prefix}_PASS}}")
-                    .replace("${ROOT_PASSWORD}", f"${{{var_prefix}_ROOT_PASS}}")
-                )
-
-            elif db_engine == "redis":
-                db_port = get_free_port()
-                db_name = f"redis_{secrets.token_hex(4)}"
-                if db_variant == "with-auth":
-                    db_pass = generate_password(16)
-                    service_name = f"db-redis-auth-{secrets.token_hex(2)}"
-                    var_prefix = service_name.upper().replace("-", "_")
-                    env_vars[f"{var_prefix}_PORT"] = str(db_port)
-                    env_vars[f"{var_prefix}_PASS"] = db_pass
-                    snippet = (
-                        AGENT_REDIS_AUTH_SNIPPET.replace(
-                            "${SERVICE_NAME}", service_name
-                        )
-                        .replace("${PORT}", f"${{{var_prefix}_PORT}}")
-                        .replace("${VOL_NAME}", f"{service_name}-data")
-                        .replace("${PASSWORD}", f"${{{var_prefix}_PASS}}")
-                    )
-                else:
-                    service_name = f"db-redis-{secrets.token_hex(2)}"
-                    var_prefix = service_name.upper().replace("-", "_")
-                    env_vars[f"{var_prefix}_PORT"] = str(db_port)
-                    snippet = (
-                        AGENT_REDIS_SNIPPET.replace("${SERVICE_NAME}", service_name)
-                        .replace("${PORT}", f"${{{var_prefix}_PORT}}")
-                        .replace("${VOL_NAME}", f"{service_name}-data")
-                    )
-
-            elif db_engine == "valkey":
-                db_port = get_free_port()
-                db_name = f"valkey_{secrets.token_hex(4)}"
-                if db_variant == "with-auth":
-                    db_pass = generate_password(16)
-                    service_name = f"db-valkey-auth-{secrets.token_hex(2)}"
-                    var_prefix = service_name.upper().replace("-", "_")
-                    env_vars[f"{var_prefix}_PORT"] = str(db_port)
-                    env_vars[f"{var_prefix}_PASS"] = db_pass
-                    snippet = (
-                        AGENT_VALKEY_AUTH_SNIPPET.replace(
-                            "${SERVICE_NAME}", service_name
-                        )
-                        .replace("${PORT}", f"${{{var_prefix}_PORT}}")
-                        .replace("${VOL_NAME}", f"{service_name}-data")
-                        .replace("${PASSWORD}", f"${{{var_prefix}_PASS}}")
-                    )
-                else:
-                    service_name = f"db-valkey-{secrets.token_hex(2)}"
-                    var_prefix = service_name.upper().replace("-", "_")
-                    env_vars[f"{var_prefix}_PORT"] = str(db_port)
-                    snippet = (
-                        AGENT_VALKEY_SNIPPET.replace("${SERVICE_NAME}", service_name)
-                        .replace("${PORT}", f"${{{var_prefix}_PORT}}")
-                        .replace("${VOL_NAME}", f"{service_name}-data")
-                    )
-
-            elif db_engine == "mssql":
-                db_port = get_free_port()
-                db_pass = generate_password(16)
-                db_name = "master"
-                service_name = f"db-mssql-{secrets.token_hex(2)}"
-                var_prefix = service_name.upper().replace("-", "_")
-                env_vars[f"{var_prefix}_PORT"] = str(db_port)
-                env_vars[f"{var_prefix}_PASS"] = db_pass
-                snippet = (
-                    AGENT_MSSQL_SNIPPET.replace("${SERVICE_NAME}", service_name)
-                    .replace("${PORT}", f"${{{var_prefix}_PORT}}")
-                    .replace("${VOL_NAME}", f"{service_name}-data")
-                    .replace("${PASSWORD}", f"${{{var_prefix}_PASS}}")
-                )
-
-            compose_path = path / "docker-compose.yml"
-            if compose_path.exists():
-                content = compose_path.read_text()
-
-                vol_match = re.search(r"^volumes:", content, re.MULTILINE)
-                net_match = re.search(r"^networks:", content, re.MULTILINE)
-
-                if vol_match:
-                    insert_pos = vol_match.start()
-                elif net_match:
-                    insert_pos = net_match.start()
-                else:
-                    insert_pos = len(content)
-
-                content = content[:insert_pos] + snippet + "\n" + content[insert_pos:]
-
-                vol_match = re.search(r"^volumes:", content, re.MULTILINE)
-                net_match = re.search(r"^networks:", content, re.MULTILINE)
-                vol_entry = f"  {service_name}-data:\n"
-
-                if vol_match:
-                    if net_match and net_match.start() > vol_match.start():
-                        content = (
-                            content[: net_match.start()]
-                            + vol_entry
-                            + content[net_match.start() :]
-                        )
-                    else:
-                        if not content.endswith("\n"):
-                            content += "\n"
-                        content += vol_entry
-                else:
-                    if not content.endswith("\n"):
-                        content += "\n"
-                    content += "\nvolumes:\n" + vol_entry
-
-                with open(compose_path, "w") as f:
-                    f.write(content)
-
-        if db_engine != "sqlite":
-            write_env_file(path, env_vars)
-            new_entry = {
-                "name": "mirror.fdb" if db_engine == "firebird" else db_name,
-                "database": db_container_path
-                if db_engine == "firebird"
-                else ("0" if db_engine in ["redis", "valkey"] else db_name),
-                "type": db_engine,
-                "username": "sa" if db_engine == "mssql" else db_user,
-                "password": db_pass,
-                "port": 5432
-                if db_engine in ["postgresql", "postgresql-cluster"]
-                else (
-                    3050
-                    if db_engine == "firebird"
-                    else (
-                        3306
-                        if db_engine in ["mysql", "mariadb"]
-                        else (
-                            1433
-                            if db_engine == "mssql"
-                            else (6379 if db_engine in ["redis", "valkey"] else 27017)
-                        )
-                    )
-                ),
-                "host": service_name,
-                "generated_id": str(uuid.uuid4()),
-            }
-            if pg_options is not None:
-                new_entry["options"] = pg_options
-            add_db_to_json(path, new_entry)
-        break
-
-    console.print("[success]✔ Database added to configuration.[/success]")
-    console.print(
-        "[info]Restart the agent to apply changes: [/info]"
-        + f"portabase restart {name}"
-    )
+        self.ui.info(
+            f"Restart the agent to apply changes: portabase restart {project_path.name}"
+        )
 
 
-@app.command("remove")
-def remove_db(name: str = typer.Argument(..., help="Name of the agent")):
-    path = Path(name).resolve()
-    validate_work_dir(path)
+class DbListCommand(_DbCommand):
+    name, help = "list", "List an agent's databases."
 
-    config = load_db_config(path)
-    dbs = config.get("databases", [])
+    def run(self, name: NameArg) -> None:
+        project = AgentProject.load(self.require_project_dir(name))
+        if not project.databases:
+            self.ui.warning("No databases configured.")
+            return
+        rows = []
+        for database in project.databases:
+            engine = self.engines.get(database.engine)
+            opts = ", ".join(
+                f"{key}={value}"
+                for key, value in engine.non_default_options(database).items()
+            )
+            user = (
+                "N/A"
+                if database.engine in ("sqlite", "docker-volume")
+                else (database.username or "")
+            )
+            rows.append(
+                [
+                    database.name,
+                    database.database or "",
+                    database.engine,
+                    engine.describe(database),
+                    user,
+                    opts,
+                    database.id[:8] + "...",
+                ]
+            )
+        self.ui.table(
+            ["Display Name", "Database", "Type", "Host:Port", "User", "Options", "ID"],
+            rows,
+            title=f"Databases for {project.path.name}",
+        )
 
-    if not dbs:
-        console.print("[warning]No databases to remove.[/warning]")
-        return
 
-    options = [f"{db['name']} ({db['type']})" for db in dbs]
-    choice = Prompt.ask("Which database to remove?", choices=options)
+class DbCommands(CommandGroup):
+    name, help, panel = "db", "Manage an agent's databases.", "Components"
 
-    index = options.index(choice)
-    removed = dbs.pop(index)
+    def __init__(
+        self,
+        ui: UI,
+        telemetry: Telemetry,
+        engines: EngineRegistry,
+        ports: PortAllocator,
+        templates: TemplateRepository,
+        renderer: ComposeRenderer,
+        docker: DockerRunner,
+    ) -> None:
+        super().__init__(ui, telemetry)
+        self._deps = (ui, telemetry, engines, ports, templates, renderer, docker)
 
-    config["databases"] = dbs
-    save_db_config(path, config)
-
-    console.print(f"[success]✔ Removed {removed['name']}[/success]")
-    console.print("[info]Restart the agent to apply changes.[/info]")
+    @property
+    def commands(self) -> list[Command]:
+        return [
+            DbAddCommand(*self._deps),
+            DbRemoveCommand(*self._deps),
+            DbListCommand(*self._deps),
+        ]

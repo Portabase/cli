@@ -10,7 +10,7 @@
     <i>The official command line interface (CLI) for managing and deploying Portabase instances with ease.</i>
   </p>
 
-
+[![Plumber Score](https://score.getplumber.io/github.com/Portabase/cli.svg)](https://score.getplumber.io/github.com/Portabase/cli)
 [![License: Apache](https://img.shields.io/badge/License-apache-yellow.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-linux%20%7C%20macos%20%7C%20windows-lightgrey)](https://github.com/Portabase/portabase)
 
@@ -63,3 +63,28 @@ Distributed under the Apache License. See `LICENSE.txt` for more details.
 
 
 
+
+## Commands
+
+```
+portabase agent create NAME            create an agent folder
+portabase agent show|set|unset NAME
+portabase agent db add|remove|list NAME
+portabase dashboard create NAME        create a dashboard folder
+portabase dashboard show|set|unset NAME
+portabase dashboard auth add|list|remove NAME
+portabase start|stop|restart|logs|uninstall|build PATH
+```
+
+`portabase db` was removed: database commands only apply to an agent, use `portabase agent db`.
+
+## Upgrading from 26.08 or earlier
+
+From this release the CLI owns `docker-compose.yml`: it is re-rendered from your
+`.env` and `databases.json` whenever you run `portabase agent db add`, `agent db remove` or
+`build`. The first time that happens on an older install, the existing file is
+copied to `docker-compose.legacy.yml` first.
+
+- Preview the change before applying it: `portabase build <name> --diff`
+- Keep your own customisations in `docker-compose.override.yml`; Docker Compose
+  merges it automatically and the CLI never touches it.

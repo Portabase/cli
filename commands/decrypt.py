@@ -1,8 +1,11 @@
+from __future__ import annotations
+
 from pathlib import Path
-from typing import Optional
+from typing import Annotated
 
 import typer
 
+from commands.base import Command
 from core.crypto import (
     ENC_SUFFIX,
     DecryptionError,
@@ -10,124 +13,106 @@ from core.crypto import (
     default_output_for,
     load_master_key,
 )
-from core.utils import console
+from core.errors import ConfigError, ValidationError
 
 
 def _looks_like_dir(path: Path) -> bool:
-    """True when ``path`` is an existing directory or clearly names one."""
     if path.exists():
         return path.is_dir()
-    # A trailing separator or no suffix is treated as a directory hint.
     return str(path).endswith(("/", "\\")) or path.suffix == ""
 
 
-def decrypt(
-    input_path: Path = typer.Argument(
-        ...,
-        help="A .enc file, or a folder containing .enc files.",
-    ),
-    output_path: Optional[Path] = typer.Argument(
-        None,
-        help="Output file or folder (must match the input type). "
-        "Defaults to the same directory as the input.",
-    ),
-    key: Optional[Path] = typer.Option(
-        None,
-        "--key",
-        "-k",
-        help="Path to the master key file. Defaults to 'master_key.bin' in the "
-        "current directory.",
-    ),
-):
-    """Decrypt Portabase AES-256-GCM ``.enc`` backup files."""
-    input_path = input_path.resolve()
+class DecryptCommand(Command):
+    name = "decrypt"
+    help = "Decrypt Portabase .enc backup files (single file or folder)."
+    panel = "Configuration"
+    no_args_is_help = True
 
-    if not input_path.exists():
-        console.print(f"[danger]✖ Input path not found: {input_path}[/danger]")
-        raise typer.Exit(1)
-
-    try:
+    def run(
+        self,
+        input_path: Annotated[
+            Path,
+            typer.Argument(help="A .enc file, or a folder containing .enc files."),
+        ],
+        output_path: Annotated[
+            Path | None,
+            typer.Argument(
+                help="Output file or folder (must match the input type). "
+                "Defaults to the input directory."
+            ),
+        ] = None,
+        key: Annotated[
+            Path | None,
+            typer.Option(
+                "--key", "-k", help="Master key file. Defaults to ./master_key.bin"
+            ),
+        ] = None,
+    ) -> None:
+        input_path = input_path.resolve()
+        if not input_path.exists():
+            raise ConfigError(f"Input path not found: {input_path}")
         master_key = load_master_key(key.resolve() if key else None)
-    except DecryptionError as exc:
-        console.print(f"[danger]✖ {exc}[/danger]")
-        raise typer.Exit(1)
+        if input_path.is_dir():
+            self._folder(input_path, output_path, master_key)
+        else:
+            self._single(input_path, output_path, master_key)
 
-    if input_path.is_dir():
-        _decrypt_folder(input_path, output_path, master_key)
-    else:
-        _decrypt_single(input_path, output_path, master_key)
+    def _single(
+        self, enc_path: Path, output_path: Path | None, master_key: bytes
+    ) -> None:
+        if enc_path.suffix != ENC_SUFFIX:
+            self.ui.warning(
+                f"{enc_path.name} does not end with {ENC_SUFFIX}; decrypting anyway."
+            )
+        if output_path is None:
+            out = enc_path.parent / default_output_for(enc_path)
+        elif _looks_like_dir(output_path):
+            out = output_path.resolve() / default_output_for(enc_path)
+        else:
+            out = output_path.resolve()
+        try:
+            decrypt_enc_file(enc_path, out, master_key)
+        except OSError as error:
+            raise DecryptionError(
+                f"I/O error on {enc_path.name}: {error}", cause=error
+            ) from error
+        self.ui.success(f"Decrypted {enc_path.name} → {out}")
 
-
-def _decrypt_single(
-    enc_path: Path, output_path: Optional[Path], master_key: bytes
-) -> None:
-    if enc_path.suffix != ENC_SUFFIX:
-        console.print(
-            f"[warning]⚠ {enc_path.name} does not end with {ENC_SUFFIX}; "
-            "decrypting anyway.[/warning]"
+    def _folder(
+        self, in_dir: Path, output_path: Path | None, master_key: bytes
+    ) -> None:
+        enc_files = sorted(
+            path
+            for path in in_dir.iterdir()
+            if path.is_file() and path.suffix == ENC_SUFFIX
         )
+        if not enc_files:
+            self.ui.warning(f"No {ENC_SUFFIX} files found in {in_dir}.")
+            return
+        if output_path is None:
+            out_dir = in_dir
+        elif _looks_like_dir(output_path):
+            out_dir = output_path.resolve()
+        else:
+            raise ValidationError(
+                "Input is a folder, so the output must be a folder too."
+            )
+        out_dir.mkdir(parents=True, exist_ok=True)
 
-    if output_path is None:
-        out_path = enc_path.parent / default_output_for(enc_path)
-    elif _looks_like_dir(output_path):
-        out_path = output_path.resolve() / default_output_for(enc_path)
-    else:
-        out_path = output_path.resolve()
-
-    try:
-        decrypt_enc_file(enc_path, out_path, master_key)
-    except DecryptionError as exc:
-        console.print(f"[danger]✖ Failed to decrypt {enc_path.name}: {exc}[/danger]")
-        raise typer.Exit(1)
-    except OSError as exc:
-        console.print(f"[danger]✖ I/O error on {enc_path.name}: {exc}[/danger]")
-        raise typer.Exit(1)
-
-    console.print(f"[success]✔ Decrypted[/success] {enc_path.name} → {out_path}")
-
-
-def _decrypt_folder(
-    in_dir: Path, output_path: Optional[Path], master_key: bytes
-) -> None:
-    enc_files = sorted(p for p in in_dir.iterdir() if p.is_file() and p.suffix == ENC_SUFFIX)
-
-    if not enc_files:
-        console.print(f"[warning]No {ENC_SUFFIX} files found in {in_dir}.[/warning]")
-        raise typer.Exit()
-
-    if output_path is None:
-        out_dir = in_dir
-    elif _looks_like_dir(output_path):
-        out_dir = output_path.resolve()
-    else:
-        console.print(
-            "[danger]✖ Input is a folder, so the output must be a folder too.[/danger]"
+        failures: list[tuple[str, str]] = []
+        with self.ui.status(f"Decrypting {len(enc_files)} file(s)..."):
+            for enc_path in enc_files:
+                out = out_dir / default_output_for(enc_path)
+                try:
+                    decrypt_enc_file(enc_path, out, master_key)
+                except (DecryptionError, OSError) as error:
+                    failures.append((enc_path.name, str(error)))
+        succeeded = len(enc_files) - len(failures)
+        self.ui.info(
+            f"Done: {succeeded} succeeded, {len(failures)} failed "
+            f"of {len(enc_files)} file(s)."
         )
-        raise typer.Exit(1)
-
-    out_dir.mkdir(parents=True, exist_ok=True)
-
-    succeeded = 0
-    failures: list[tuple[str, str]] = []
-
-    with console.status(f"[bold magenta]Decrypting {len(enc_files)} file(s)...[/bold magenta]"):
-        for enc_path in enc_files:
-            out_path = out_dir / default_output_for(enc_path)
-            try:
-                decrypt_enc_file(enc_path, out_path, master_key)
-            except (DecryptionError, OSError) as exc:
-                failures.append((enc_path.name, str(exc)))
-                console.print(f"[danger]✖ {enc_path.name}: {exc}[/danger]")
-                continue
-            succeeded += 1
-            console.print(f"[success]✔[/success] {enc_path.name} → {out_path.name}")
-
-    console.print(
-        f"\n[info]Done: {succeeded} succeeded, {len(failures)} failed "
-        f"of {len(enc_files)} file(s).[/info]"
-    )
-    if failures:
-        console.print("[warning]Failed files:[/warning]")
-        for name, reason in failures:
-            console.print(f"  [danger]•[/danger] {name}: {reason}")
-        raise typer.Exit(1)
+        if failures:
+            for name, reason in failures:
+                self.ui.print(f"  [danger]•[/danger] {name}: {reason}")
+            raise DecryptionError(f"{len(failures)} file(s) failed to decrypt.")
