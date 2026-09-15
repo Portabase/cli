@@ -83,9 +83,7 @@ class DbAddCommand(_DbCommand):
         ] = None,
         port: Annotated[
             int | None,
-            typer.Option(
-                "--port", help="Port of an existing database"
-            ),
+            typer.Option("--port", help="Port of an existing database"),
         ] = None,
         database: Annotated[
             str | None, typer.Option("--database", help="Database name")
