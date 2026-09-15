@@ -521,7 +521,7 @@ wheels = [
 
 [[package]]
 name = "portabase-cli"
-version = "26.8.12"
+version = "26.9.2"
 source = { virtual = "." }
 dependencies = [
     { name = "jinja2" },
