@@ -1,0 +1,22 @@
+  {{ name }}:
+    image: redis:latest
+    restart: unless-stopped
+    ports:
+      - "{{ port_var }}:6379"
+    volumes:
+      - {{ volume }}:/data
+{%- if auth %}
+    environment:
+      - "REDIS_PASSWORD={{ password_var }}"
+    command: ["redis-server", "--requirepass", "{{ password_var }}", "--appendonly", "yes"]
+{%- else %}
+    command: ["redis-server", "--appendonly", "yes"]
+{%- endif %}
+    networks:
+      - portabase
+      - default
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli {% if auth %}-a {{ password_var }} {% endif %}ping | grep PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 5

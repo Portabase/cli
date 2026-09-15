@@ -1,60 +1,63 @@
-import socket
-import shutil
-import typer
-from pathlib import Path
-from rich.console import Console, Theme
-from rich.align import Align
-import subprocess
+import base64
+import binascii
+import json
+import re
+import secrets
+import string
 
-custom_theme = Theme({
-    "info": "dim cyan",
-    "warning": "magenta",
-    "danger": "bold red",
-    "success": "bold green",
-    "title": "bold white on #5f00d7",
-    "key": "bold #ff6600",
-    "value": "white"
-})
-console = Console(theme=custom_theme)
 
-BANNER = """
-[bold #ff6600]█▀█ █▀█ █▀█ ▀█▀ ▄▀█ █▄▄ ▄▀█ █▀ █▀▀[/bold #ff6600]
-[bold #ff6600]█▀▀ █▄█ █▀▄  █  █▀█ █▄█ █▀█ ▄█ ██▄[/bold #ff6600]
-[dim]Deploy your infrastructure anywhere.[/dim]
-"""
+def generate_password(length: int = 16) -> str:
 
-def print_banner():
-    console.print(Align.center(BANNER))
+    if length < 8:
+        length = 8
 
-def get_free_port():
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.bind(("", 0))
-        return s.getsockname()[1]
+    lower = string.ascii_lowercase
+    upper = string.ascii_uppercase
+    digits = string.digits
+    symbols = "!@#%^&*()-_=+[]{}|;:,.<>?"
 
-def check_system():
-    docker_path = shutil.which("docker")
-    
-    if docker_path is None:
-        console.print("[danger]✖ Docker not found (binary missing).[/danger]")
-        raise typer.Exit(1)
+    password = [
+        secrets.choice(lower),
+        secrets.choice(upper),
+        secrets.choice(digits),
+        secrets.choice(symbols),
+    ]
 
+    all_chars = lower + upper + digits + symbols
+    password += [secrets.choice(all_chars) for _ in range(length - 4)]
+
+    secrets.SystemRandom().shuffle(password)
+
+    return "".join(password)
+
+
+def escape_yaml_double_quoted(value: str) -> str:
+    return value.replace("\\", "\\\\").replace('"', '\\"')
+
+
+def slugify_project_name(value: str, fallback: str = "portabase") -> str:
+    slug = re.sub(r"[^a-z0-9_-]+", "-", value.lower())
+    slug = slug.strip("-_")
+    slug = re.sub(r"^[^a-z0-9]+", "", slug)
+
+    return slug or fallback
+
+
+def validate_edge_key(key: str) -> bool:
     try:
-        subprocess.run(
-            [docker_path, "info"], 
-            stdout=subprocess.DEVNULL, 
-            stderr=subprocess.DEVNULL, 
-            check=True
-        )
-    except subprocess.CalledProcessError:
-        console.print("[danger]✖ Docker is installed but the Daemon is not running.[/danger]")
-        console.print("[dim]Please start Docker Desktop or the docker service.[/dim]")
-        raise typer.Exit(1)
-    except Exception as e:
-        console.print(f"[danger]✖ Critical Error executing Docker:[/danger] {e}")
-        raise typer.Exit(1)
+        try:
+            decoded_bytes = base64.b64decode(key, validate=True)
+            decoded_str = decoded_bytes.decode("utf-8")
+            data = json.loads(decoded_str)
+        except (binascii.Error, UnicodeDecodeError, json.JSONDecodeError):
+            try:
+                data = json.loads(key)
+            except json.JSONDecodeError:
+                return False
 
-def validate_work_dir(path: Path):
-    if not (path / "docker-compose.yml").exists():
-        console.print(f"[danger]No Portabase configuration found in: {path}[/danger]")
-        raise typer.Exit(1)
-    return path
+        required_fields = ["serverUrl", "agentId", "masterKeyB64"]
+        return isinstance(data, dict) and all(
+            field in data for field in required_fields
+        )
+    except TypeError:
+        return False

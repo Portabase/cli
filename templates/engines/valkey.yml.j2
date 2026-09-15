@@ -1,0 +1,21 @@
+  {{ name }}:
+    image: valkey/valkey:latest
+    restart: unless-stopped
+{%- if auth %}
+    command: ["valkey-server", "--requirepass", "{{ password_var }}"]
+{%- else %}
+    environment:
+      - "ALLOW_EMPTY_PASSWORD=yes"
+{%- endif %}
+    ports:
+      - "{{ port_var }}:6379"
+    volumes:
+      - {{ volume }}:/data
+    networks:
+      - portabase
+      - default
+    healthcheck:
+      test: ["CMD-SHELL", "valkey-cli {% if auth %}-a {{ password_var }} {% endif %}ping | grep PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 5

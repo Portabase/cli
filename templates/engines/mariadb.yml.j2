@@ -1,0 +1,19 @@
+  {{ name }}:
+    image: mariadb:latest
+    restart: unless-stopped
+    networks:
+      - portabase
+    ports:
+      - "{{ port_var }}:3306"
+    environment:
+      - "MYSQL_DATABASE={{ db_var }}"
+      - "MYSQL_USER={{ user_var }}"
+      - "MYSQL_PASSWORD={{ password_var }}"
+      - "MYSQL_RANDOM_ROOT_PASSWORD=yes"
+    volumes:
+      - {{ volume }}:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mariadb-admin ping -h localhost -u {{ user_var }} -p{{ password_var }}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5

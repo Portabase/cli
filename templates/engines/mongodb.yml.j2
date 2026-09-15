@@ -1,0 +1,23 @@
+  {{ name }}:
+    image: mongo:latest
+    restart: unless-stopped
+    networks:
+      - portabase
+    ports:
+      - "{{ port_var }}:27017"
+    environment:
+{%- if auth %}
+      - "MONGO_INITDB_ROOT_USERNAME={{ user_var }}"
+      - "MONGO_INITDB_ROOT_PASSWORD={{ password_var }}"
+{%- endif %}
+      - "MONGO_INITDB_DATABASE={{ db_var }}"
+{%- if auth %}
+    command: mongod --auth
+{%- endif %}
+    volumes:
+      - {{ volume }}:/data/db
+    healthcheck:
+      test: ["CMD-SHELL", "mongosh --eval 'db.runCommand({ping:1})' --quiet"]
+      interval: 10s
+      timeout: 5s
+      retries: 5

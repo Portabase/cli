@@ -1,57 +1,40 @@
 import json
 import os
-import uuid
 from pathlib import Path
 
-TEMPLATE_BASE_URL = "https://portabase-cli.s3.fr-par.scw.cloud/templates/v1"
+GLOBAL_CONFIG_DIR = Path.home() / ".portabase"
+GLOBAL_CONFIG_FILE = GLOBAL_CONFIG_DIR / "config.json"
 
-def write_file(path: Path, content: str):
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "w") as f:
-        f.write(content)
 
-def write_env_file(work_dir: Path, env_vars: dict):
-    existing = {}
-    env_path = work_dir / ".env"
-    if env_path.exists():
-        with open(env_path, "r") as f:
-            for line in f:
-                if "=" in line:
-                    k, v = line.strip().split("=", 1)
-                    existing[k] = v.strip('"')
-    
-    existing.update(env_vars)
-    content = ""
-    for k, v in existing.items():
-        content += f'{k}="{v}"\n'
-    write_file(env_path, content)
+class GlobalConfig:
+    KNOWN_KEYS = ("update_channel",)
 
-def load_db_config(path: Path) -> dict:
-    json_path = path / "databases.json"
-    if not json_path.exists():
-        return {"databases": []}
-    try:
-        with open(json_path, "r") as f:
-            return json.load(f)
-    except:
-        return {"databases": []}
+    def __init__(self, path: Path = GLOBAL_CONFIG_FILE) -> None:
+        self.path = path
+        self.cache_dir = path.parent / "cache"
 
-def save_db_config(path: Path, config: dict):
-    json_path = path / "databases.json"
-    with open(json_path, "w") as f:
-        json.dump(config, f, indent=2)
-    try:
-        os.chmod(json_path, 0o666)
-    except:
-        pass
+    def all(self) -> dict:
+        if not self.path.exists():
+            return {}
+        try:
+            with open(self.path, encoding="utf-8") as file:
+                data = json.load(file)
+        except (OSError, json.JSONDecodeError):
+            return {}
+        return data if isinstance(data, dict) else {}
 
-def add_db_to_json(path: Path, db_entry: dict):
-    config = load_db_config(path)
-    if "databases" not in config:
-        config["databases"] = []
-    
-    if "generatedId" not in db_entry:
-        db_entry["generatedId"] = str(uuid.uuid4())
-        
-    config["databases"].append(db_entry)
-    save_db_config(path, config)
+    def get(self, key: str, default=None):
+        return self.all().get(key, default)
+
+    def set(self, key: str, value) -> None:
+        data = self.all()
+        data[key] = value
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = self.path.with_suffix(".json.tmp")
+        with open(tmp, "w", encoding="utf-8") as file:
+            json.dump(data, file, indent=2)
+        os.replace(tmp, self.path)
+
+    @property
+    def update_channel(self) -> str | None:
+        return self.get("update_channel")

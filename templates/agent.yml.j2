@@ -1,0 +1,45 @@
+services:
+  agent:
+    restart: unless-stopped
+    image: portabase/agent:latest
+    volumes:
+      - ./databases.json:/config/config.json
+{%- for m in mounts %}
+      - {{ m.host }}:{{ m.container }}
+{%- endfor %}
+{%- if docker_socket %}
+      - /var/run/docker.sock:/var/run/docker.sock
+{%- endif %}
+{%- if ca_bundle %}
+      - {{ ca_bundle }}:{{ ca_bundle_in_container }}:ro
+{%- endif %}
+{%- if host_gateway %}
+    extra_hosts:
+      - "localhost:host-gateway"
+{%- endif %}
+    environment:
+      TZ: "{{ tz_var }}"
+      EDGE_KEY: "{{ edge_key_var }}"
+      LOG_LEVEL: "{{ log_level_var }}"
+      POLLING: "{{ polling_var }}"
+{%- for name, value in extra_env %}
+      {{ name }}: "{{ value }}"
+{%- endfor %}
+{%- if ca_bundle %}
+      SSL_CERT_FILE: "{{ ssl_cert_file_var }}"
+{%- endif %}
+    networks:
+      - portabase
+{% for s in services %}
+{{ s.body }}
+{%- endfor %}
+{% if services %}
+volumes:
+{%- for s in services %}
+  {{ s.volume }}:
+{%- endfor %}
+{% endif %}
+networks:
+  portabase:
+    name: portabase_network
+    external: true

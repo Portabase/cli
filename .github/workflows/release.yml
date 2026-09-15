@@ -3,66 +3,57 @@ name: Release
 on:
   push:
     tags:
-      - 'v*'
+      - '*.*.*'
 
 permissions:
   contents: write
+  id-token: write
+  attestations: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
-  build:
-    name: Build for ${{ matrix.os }} (${{ matrix.arch }})
-    runs-on: ${{ matrix.runner }}
-    strategy:
-      matrix:
-        include:
-          - os: linux
-            arch: amd64
-            runner: ubuntu-latest
-          - os: macos
-            arch: arm64
-            runner: macos-latest
-          - os: macos
-            arch: amd64
-            runner: macos-15
-    
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v3
-
-      - name: Set up Python
-        run: uv python install
-
-      - name: Build binary
-        run: |
-          uv run pyinstaller --onefile --name portabase_${{ matrix.os }}_${{ matrix.arch }} --paths=. main.py
-
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: portabase_${{ matrix.os }}_${{ matrix.arch }}
-          path: dist/portabase_${{ matrix.os }}_${{ matrix.arch }}
-
-  release:
-    needs: build
+  channel:
+    name: channel
     runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      prerelease: ${{ steps.detect.outputs.prerelease }}
     steps:
-      - name: Download all artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: ./dist
-          pattern: portabase_*
-          merge-multiple: true
-      - name: Generate Checksums
-        working-directory: ./dist
-        run: |
-          sha256sum portabase_* > checksums.txt
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          files: dist/*
-          generate_release_notes: true
-          make_latest: true
+      - id: detect
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          if [[ "$TAG" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+([-.]?(rc|alpha|beta|a|b)[0-9]*(\.[0-9]+)?)$ ]]; then
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+          elif [[ "$TAG" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "::error::tag '$TAG' is neither X.Y.Z nor X.Y.Z<rc|alpha|beta|a|b>N"
+            exit 1
+          fi
+
+  build:
+    needs: channel
+    uses: ./.github/workflows/build.yml
+
+  publish:
+    needs: [channel, build]
+    uses: ./.github/workflows/publish.yml
+    with:
+      prerelease: ${{ needs.channel.outputs.prerelease == 'true' }}
+
+  announce:
+    needs: [channel, publish]
+    uses: ./.github/workflows/discord.yml
+    with:
+      release_tag: ${{ github.ref_name }}
+      discord_title: >-
+        ${{ needs.channel.outputs.prerelease == 'true'
+            && '||@release-cli|| New release candidate published'
+            || '||@release-cli|| New release published' }}
+      discord_color: ${{ needs.channel.outputs.prerelease == 'true' && 16776960 || 5814783 }}
+    secrets: inherit

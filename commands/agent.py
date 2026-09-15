@@ -1,178 +1,221 @@
-import typer
-import secrets
-import uuid
-import os
+from __future__ import annotations
+
 from pathlib import Path
-from typing import Optional
-from rich.panel import Panel
-from rich.prompt import Prompt, Confirm, IntPrompt
-from core.utils import console, print_banner, check_system, get_free_port
-from core.config import write_file, write_env_file, add_db_to_json
-from core.docker import ensure_network, run_compose
-from core.network import fetch_template
-from templates.compose import AGENT_POSTGRES_SNIPPET, AGENT_MARIADB_SNIPPET
+from typing import Annotated, Any
 
-def agent(
-    name: str = typer.Argument(..., help="Name of the agent (creates a folder)"),
-    key: Optional[str] = typer.Option(None, "--key", "-k", help="Edge Key"),
-    start: bool = typer.Option(False, "--start", "-s", help="Start immediately")
-):
-    print_banner()
-    check_system()
-    ensure_network("portabase_network")
+import typer
 
-    path = Path(name).resolve()
-    if path.exists():
-        console.print(f"[warning]Directory '{name}' already exists.[/warning]")
-        if not Confirm.ask("Overwrite?"):
-            raise typer.Exit()
-    
-    path.mkdir(parents=True, exist_ok=True)
-    project_name = name.lower().replace(" ", "-")
+from commands.base import Command, CommandGroup
+from commands.db import DbCommands, report_write
+from commands.flows.add_database import AddDatabaseFlow
+from commands.settings import (
+    SetCommand,
+    UnsetCommand,
+    apply_settings,
+    display,
+    read_secret_flags,
+    show_settings,
+    with_settings_flags,
+)
+from engines import EngineRegistry
+from services import settings as cfg
+from services.docker import DockerRunner
+from services.ports import PortAllocator
+from services.project import AgentProject
+from services.renderer import ComposeRenderer
+from services.telemetry import Telemetry
+from services.templates import TemplateRepository
+from ui import UI
 
-    if not key:
-        key = Prompt.ask("[key]Edge Key[/key]")
+NETWORK = "portabase_network"
 
-    raw_template = fetch_template("agent.yml")
 
-    env_vars = {
-        "EDGE_KEY": key,
-        "PROJECT_NAME": project_name
-    }
-    
-    extra_services = ""
-    extra_volumes = ""
-    volumes_list = []
-    
-    json_path = path / "databases.json"
-    if not json_path.exists():
-        write_file(json_path, '{"databases": []}') 
-        try:
-            os.chmod(json_path, 0o666)
-        except:
-            pass
+class AgentCreateCommand(Command):
+    name, help, panel = "create", "Create a new Portabase Agent instance.", "Components"
+    no_args_is_help = True
 
-    console.print("")
-    console.print(Panel("[bold]Database Setup[/bold]", style="cyan"))
+    def __init__(
+        self,
+        ui: UI,
+        telemetry: Telemetry,
+        docker: DockerRunner,
+        templates: TemplateRepository,
+        renderer: ComposeRenderer,
+        engines: EngineRegistry,
+        ports: PortAllocator,
+    ) -> None:
+        super().__init__(ui, telemetry)
+        self.docker = docker
+        self.templates = templates
+        self.renderer = renderer
+        self.engines = engines
+        self.ports = ports
 
-    while Confirm.ask("Do you want to configure a database?", default=True):
-        mode = Prompt.ask("Configuration Mode", choices=["docker", "manual"], default="docker")
-        
-        if mode == "manual":
-            console.print("[info]External/Existing Database Configuration[/info]")
-            db_type = Prompt.ask("Type", choices=["postgresql", "mysql", "mariadb"], default="postgresql")
-            friendly_name = Prompt.ask("Display Name", default="External DB")
-            db_name = Prompt.ask("Database Name")
-            host = Prompt.ask("Host", default="localhost")
-            port = IntPrompt.ask("Port", default=5432 if db_type == "postgresql" else 3306)
-            user = Prompt.ask("Username")
-            password = Prompt.ask("Password", password=True)
-            
-            add_db_to_json(path, {
-                "name": friendly_name,
-                "database": db_name,
-                "type": db_type,
-                "username": user,
-                "password": password,
-                "port": port,
-                "host": host,
-                "generatedId": str(uuid.uuid4())
-            })
-            console.print("[success]✔ Added to config[/success]")
+    def register(self, app: typer.Typer) -> None:
+        app.command(
+            self.name, help=self.help, rich_help_panel=self.panel, no_args_is_help=True
+        )(self._traced(with_settings_flags(self.run, cfg.AGENT)))
 
+    def run(
+        self,
+        name: Annotated[str, typer.Argument(help="Agent name (creates a folder)")],
+        start: Annotated[
+            bool, typer.Option("--start", "-s", help="Start immediately")
+        ] = False,
+        force: Annotated[
+            bool, typer.Option("--force", "-f", help="Overwrite an existing folder")
+        ] = False,
+        yes: Annotated[
+            bool,
+            typer.Option("--yes", "-y", help="Skip the configuration confirmation"),
+        ] = False,
+        **settings: Any,
+    ) -> None:
+        self.ui.banner()
+        self.require_docker(self.docker)
+        self.docker.ensure_network(NETWORK)
+        self.templates.resolve()
+
+        path = Path(name).resolve()
+        if path.exists() and not force:
+            self.ui.warning(f"Directory '{name}' already exists.")
+            self.confirm_or_abort("Overwrite?", default=False)
+
+        provided = read_secret_flags(cfg.AGENT, settings)
+        form = self.ui.form()
+        answers = {
+            setting.name: form.ask(setting.field, provided.get(setting.name))
+            for setting in cfg.AGENT
+            if setting.core
+        }
+        env_vars = {
+            setting.env: setting.to_env(answers[setting.name])
+            for setting in cfg.AGENT
+            if setting.core and setting.env
+        }
+        gateway = bool(answers["host_gateway"])
+
+        rows = [("Agent Name", name), ("Path", str(path))]
+        rows += [
+            (setting.field.prompt, display(setting, answers[setting.name]))
+            for setting in cfg.AGENT
+            if setting.core
+        ]
+        rows.append(("Files to Create", "docker-compose.yml, .env, databases.json"))
+        self.ui.summary(rows, title="SUMMARY")
+        if not yes:
+            self.confirm_or_abort(
+                "Apply this configuration and generate files?", default=True
+            )
+
+        project = AgentProject.create(path, env_vars, host_gateway=gateway)
+        apply_settings(
+            self.ui,
+            project,
+            {
+                key: value
+                for key, value in provided.items()
+                if not cfg.AGENT.get(key).core
+            },
+        )
+        self._write(project)
+        self.ui.success(f"Agent '{name}' created in {path}")
+
+        if self.ui.non_interactive:
+            self.ui.hint(
+                f"Add databases with: portabase agent db add {name} "
+                "--engine postgresql --mode new"
+            )
         else:
-            console.print("[info]New Local Docker Container[/info]")
-            db_engine = Prompt.ask("Engine", choices=["postgresql", "mariadb"], default="postgresql")
-            
-            if db_engine == "postgresql":
-                pg_port = get_free_port()
-                db_user = "admin"
-                db_pass = secrets.token_hex(8)
-                db_name = f"pg_{secrets.token_hex(4)}"
-                service_name = f"db-pg-{secrets.token_hex(2)}"
-                
-                var_prefix = service_name.upper().replace("-", "_")
-                env_vars[f"{var_prefix}_PORT"] = str(pg_port)
-                env_vars[f"{var_prefix}_DB"] = db_name
-                env_vars[f"{var_prefix}_USER"] = db_user
-                env_vars[f"{var_prefix}_PASS"] = db_pass
+            self.ui.section("Database Setup")
+            flow = AddDatabaseFlow(self.ui, self.engines, self.ports)
+            while self.ui.confirm("Add a database?", default=True):
+                spec, engine = flow.collect({})
+                flow.apply(project, spec, engine)
+                self._write(project)
+                self.ui.success(
+                    f"Added {engine.display} '{spec.name}' ({engine.describe(spec)})"
+                )
 
-                snippet = AGENT_POSTGRES_SNIPPET \
-                    .replace("${SERVICE_NAME}", service_name) \
-                    .replace("${PORT}", f"${{{var_prefix}_PORT}}") \
-                    .replace("${VOL_NAME}", f"{service_name}-data") \
-                    .replace("${DB_NAME}", f"${{{var_prefix}_DB}}") \
-                    .replace("${USER}", f"${{{var_prefix}_USER}}") \
-                    .replace("${PASSWORD}", f"${{{var_prefix}_PASS}}")
-                
-                extra_services += snippet
-                volumes_list.append(f"{service_name}-data")
-                
-                add_db_to_json(path, {
-                    "name": db_name,
-                    "database": db_name,
-                    "type": "postgresql",
-                    "username": db_user,
-                    "password": db_pass,
-                    "port": pg_port,
-                    "host": "localhost",
-                    "generatedId": str(uuid.uuid4())
-                })
-                console.print(f"[success]✔ Added Postgres container (Port {pg_port})[/success]")
+        if start or (
+            not self.ui.non_interactive
+            and self.ui.confirm("Start agent now?", default=False)
+        ):
+            with self.ui.status("Starting agent..."):
+                self.docker.compose(path, ["up", "-d"])
+            self.ui.success("Agent started.")
+        else:
+            self.ui.info(f"Run: portabase start {name}")
 
-            elif db_engine == "mariadb":
-                mysql_port = get_free_port()
-                db_user = "admin"
-                db_pass = secrets.token_hex(8)
-                db_name = f"mysql_{secrets.token_hex(4)}"
-                service_name = f"db-mariadb-{secrets.token_hex(2)}"
-                
-                var_prefix = service_name.upper().replace("-", "_")
-                env_vars[f"{var_prefix}_PORT"] = str(mysql_port)
-                env_vars[f"{var_prefix}_DB"] = db_name
-                env_vars[f"{var_prefix}_USER"] = db_user
-                env_vars[f"{var_prefix}_PASS"] = db_pass
+    def _write(self, project: AgentProject) -> None:
+        with self.ui.status("Rendering configuration..."):
+            result = self.renderer.render_agent(project)
+            project.save_state()
+            report = result.write(project.path)
+        report_write(self.ui, report)
 
-                snippet = AGENT_MARIADB_SNIPPET \
-                    .replace("${SERVICE_NAME}", service_name) \
-                    .replace("${PORT}", f"${{{var_prefix}_PORT}}") \
-                    .replace("${VOL_NAME}", f"{service_name}-data") \
-                    .replace("${DB_NAME}", f"${{{var_prefix}_DB}}") \
-                    .replace("${USER}", f"${{{var_prefix}_USER}}") \
-                    .replace("${PASSWORD}", f"${{{var_prefix}_PASS}}")
-                
-                extra_services += snippet
-                volumes_list.append(f"{service_name}-data")
-                
-                add_db_to_json(path, {
-                    "name": db_name,
-                    "database": db_name,
-                    "type": "mysql",
-                    "username": db_user,
-                    "password": db_pass,
-                    "port": mysql_port,
-                    "host": "localhost",
-                    "generatedId": str(uuid.uuid4())
-                })
-                console.print(f"[success]✔ Added MariaDB container (Port {mysql_port})[/success]")
 
-    if volumes_list:
-        for vol in volumes_list:
-            extra_volumes += f"  {vol}:\n"
+class AgentShowCommand(Command):
+    name, help, panel = "show", "Show an agent's settings and databases.", "Components"
+    no_args_is_help = True
 
-    final_compose = raw_template.replace("{{EXTRA_SERVICES}}", extra_services)
-    final_compose = final_compose.replace("{{EXTRA_VOLUMES}}", extra_volumes)
-    
-    final_compose = final_compose.replace("${PROJECT_NAME}", project_name)
-        
-    write_file(path / "docker-compose.yml", final_compose)
-    write_env_file(path, env_vars)
+    def __init__(self, ui: UI, telemetry: Telemetry, engines: EngineRegistry) -> None:
+        super().__init__(ui, telemetry)
+        self.engines = engines
 
-    console.print(Panel(f"[bold white]AGENT READY: {name}[/bold white]", style="bold #5f00d7"))
+    def run(self, path: Annotated[Path, typer.Argument(help="Agent folder")]) -> None:
+        project = AgentProject.load(self.require_project_dir(path))
+        show_settings(self.ui, project)
+        if project.databases:
+            rows = [
+                [
+                    database.name,
+                    database.engine,
+                    self.engines.get(database.engine).describe(database),
+                ]
+                for database in project.databases
+            ]
+            self.ui.table(["Name", "Engine", "Where"], rows, title="DATABASES")
+        else:
+            self.ui.hint("No database yet: portabase agent db add")
 
-    if start or Confirm.ask("Start agent now?", default=False):
-        with console.status("[bold magenta]Starting...[/bold magenta]", spinner="earth"):
-            run_compose(path, ["up", "-d"])
-        console.print(f"[bold green]✔ Agent {name} is running[/bold green]")
-    else:
-        console.print(f"[info]Run: portabase start {name}[/info]")
+
+class AgentCommands(CommandGroup):
+    name, help, panel = "agent", "Create and manage Portabase agents.", "Components"
+
+    def __init__(
+        self,
+        ui: UI,
+        telemetry: Telemetry,
+        docker: DockerRunner,
+        templates: TemplateRepository,
+        renderer: ComposeRenderer,
+        engines: EngineRegistry,
+        ports: PortAllocator,
+    ) -> None:
+        super().__init__(ui, telemetry)
+        self._create = AgentCreateCommand(
+            ui, telemetry, docker, templates, renderer, engines, ports
+        )
+        self._templates, self._renderer, self._engines = templates, renderer, engines
+        self.db = DbCommands(ui, telemetry, engines, ports, templates, renderer, docker)
+
+    @property
+    def commands(self) -> list[Command]:
+        shared = (
+            self.ui,
+            self.telemetry,
+            self._templates,
+            AgentProject.load,
+            self._renderer.render_agent,
+        )
+        return [
+            self._create,
+            AgentShowCommand(self.ui, self.telemetry, self._engines),
+            SetCommand(*shared),
+            UnsetCommand(*shared),
+        ]
+
+    @property
+    def groups(self) -> list[CommandGroup]:
+        return [self.db]

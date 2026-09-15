@@ -1,0 +1,62 @@
+name: Build binaries
+
+on:
+  workflow_call:
+
+permissions: {}
+
+jobs:
+  build:
+    name: ${{ matrix.os }}-${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: linux
+            arch: amd64
+            runner: ubuntu-latest
+          - os: linux
+            arch: arm64
+            runner: ubuntu-24.04-arm
+          - os: macos
+            arch: arm64
+            runner: macos-latest
+          - os: macos
+            arch: amd64
+            runner: macos-15-intel
+          - os: windows
+            arch: amd64
+            runner: windows-latest
+            ext: .exe
+    defaults:
+      run:
+        shell: bash
+    env:
+      NAME: portabase_${{ matrix.os }}_${{ matrix.arch }}
+      BINARY: portabase_${{ matrix.os }}_${{ matrix.arch }}${{ matrix.ext }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: ./.github/actions/setup
+
+      - name: Build
+        id: build
+        uses: ./.github/actions/build
+        with:
+          name: ${{ env.NAME }}
+
+      - name: Attest provenance
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2
+        with:
+          subject-path: ${{ steps.build.outputs.path }}
+
+      - name: Upload
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: ${{ env.BINARY }}
+          path: ${{ steps.build.outputs.path }}

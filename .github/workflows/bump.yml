@@ -1,0 +1,92 @@
+name: Bump version
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version (e.g. 26.09.0 or 26.09.0rc1). No leading v."
+        required: true
+        type: string
+      channel:
+        description: "stable: only from main. rc: any branch."
+        required: true
+        type: choice
+        options: [stable, rc]
+        default: rc
+
+permissions: {}
+
+jobs:
+  bump:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2.2.2
+        id: app-token
+        with:
+          app-id: ${{ vars.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          permission-contents: write
+
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          token: ${{ steps.app-token.outputs.token }}
+
+      - name: Validate version against channel
+        env:
+          VERSION: ${{ inputs.version }}
+          CHANNEL: ${{ inputs.channel }}
+          REF: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          if [[ "$VERSION" == v* ]]; then
+            echo "::error::Version must not start with 'v'"; exit 1
+          fi
+          if [[ "$CHANNEL" == "stable" ]]; then
+            if [[ "$REF" != "main" ]]; then
+              echo "::error::stable releases are only allowed from main (got $REF)"; exit 1
+            fi
+            if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "::error::stable version must match X.Y.Z"; exit 1
+            fi
+          else
+            if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+([-.]?(rc|alpha|beta|a|b)[0-9]*(\.[0-9]+)?)$ ]]; then
+              echo "::error::rc version must match X.Y.Z(rc|a|b|alpha|beta)N"; exit 1
+            fi
+          fi
+          if git rev-parse "$VERSION" >/dev/null 2>&1; then
+            echo "::error::Tag $VERSION already exists"; exit 1
+          fi
+
+      - name: Update version files
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          DATE=$(date -u +%F)
+          sed -i "s/^version = \".*\"/version = \"$VERSION\"/" pyproject.toml
+          if [ -f CITATION.cff ]; then
+            sed -i "s/^version: .*/version: $VERSION/" CITATION.cff
+            sed -i "s/^date-released: .*/date-released: \"$DATE\"/" CITATION.cff
+          fi
+          git diff --stat
+
+      - name: Commit, tag, push
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add pyproject.toml CITATION.cff
+          if git diff --cached --quiet; then
+            echo "No version change to commit"
+          else
+            git commit -m "chore(release): $VERSION"
+          fi
+          git tag -a "$VERSION" -m "Release $VERSION"
+          git push origin HEAD
+          git push origin "$VERSION"

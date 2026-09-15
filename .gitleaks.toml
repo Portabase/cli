@@ -1,0 +1,19 @@
+title = "portabase-cli"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Known false positives"
+paths = [
+  '''templates/.*''',
+  '''uv\.lock''',
+]
+regexes = [
+  '''\$\{[A-Z0-9_]+\}''',
+  '''"masterKeyB64"''',
+]
+commits = [
+  "074f436a291a49b8b9353bb5f7b536c41d9ecf52",
+  "c00f128f8e40964c4afe3acb77fcbd6670a9d5fa",
+]

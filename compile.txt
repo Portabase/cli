@@ -1,1 +1,0 @@
-uv run pyinstaller --onefile --name portabase --paths=. main.py
