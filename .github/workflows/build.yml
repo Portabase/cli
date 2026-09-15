@@ -2,6 +2,12 @@ name: Build binaries
 
 on:
   workflow_call:
+    inputs:
+      version:
+        description: "Version baked into the binary. Default: the one in pyproject.toml."
+        required: false
+        type: string
+        default: ""
 
 permissions: {}
 
@@ -43,6 +49,13 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: ./.github/actions/setup
+
+      # perl rather than sed -i, which differs between GNU and BSD (macOS).
+      - name: Set version
+        if: inputs.version != ''
+        env:
+          VERSION: ${{ inputs.version }}
+        run: perl -pi -e 's/^version = ".*"/version = "$ENV{VERSION}"/' pyproject.toml
 
       - name: Build
         id: build
