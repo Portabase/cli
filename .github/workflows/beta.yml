@@ -1,0 +1,58 @@
+name: Beta release
+
+on:
+  push:
+    branches: [dev]
+
+permissions: {}
+
+concurrency:
+  group: beta-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  version:
+    name: version
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.compute.outputs.version }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - id: compute
+        env:
+          RUN_NUMBER: ${{ github.run_number }}
+        run: |
+          set -euo pipefail
+          CURRENT=$(sed -n 's/^version = "\(.*\)"/\1/p' pyproject.toml)
+          if [[ ! "$CURRENT" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)(.*)$ ]]; then
+            echo "::error::cannot parse version '$CURRENT' from pyproject.toml"
+            exit 1
+          fi
+          MAJOR=${BASH_REMATCH[1]} MINOR=${BASH_REMATCH[2]} PATCH=${BASH_REMATCH[3]}
+          PATCH=$((10#$PATCH + 1))
+          VERSION="$MAJOR.$MINOR.${PATCH}b$RUN_NUMBER"
+          echo "Beta version: $VERSION"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: version
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    uses: ./.github/workflows/build.yml
+    with:
+      version: ${{ needs.version.outputs.version }}
+
+  publish:
+    needs: [version, build]
+    permissions:
+      contents: write
+    uses: ./.github/workflows/publish.yml
+    with:
+      prerelease: true
+      tag: ${{ needs.version.outputs.version }}
