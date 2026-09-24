@@ -3,6 +3,7 @@ from __future__ import annotations
 import secrets
 from typing import Any
 
+from core.errors import ValidationError
 from core.fields import Field
 from core.specs import DatabaseSpec
 from core.utils import generate_password
@@ -23,6 +24,24 @@ class MongoEngine(DbEngine):
     key, display, default_port = "mongodb", "MongoDB", 27017
     template = "engines/mongodb.yml.j2"
     auth_variants = True
+
+    def fields_existing(self) -> list[Field]:
+        overrides = {
+            "port": Field(
+                "port",
+                "Port",
+                "int",
+                default=self.default_port,
+                help=(
+                    "Set the port to 0 for an SRV connection (mongodb+srv://, "
+                    "e.g. MongoDB Atlas); use the cluster hostname as host."
+                ),
+                validator=validate_port,
+            ),
+            "username": Field("username", "Username", "text", default=""),
+            "password": Field("password", "Password", "secret", default=""),
+        }
+        return [overrides.get(field.name, field) for field in super().fields_existing()]
 
     def option_fields(self) -> list[Field]:
         return [
