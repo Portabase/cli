@@ -80,7 +80,11 @@ def fields():
         ("password", "secret", ""),
     ]
     assert MONGO.fields_new() == []
-    assert MONGO.option_fields() == []
+    assert field_specs(MONGO.option_fields()) == [
+        ("auth_source", "text", ""),
+        ("replica_set", "text", ""),
+        ("tls", "bool", False),
+    ]
 
 
 def from_existing():
@@ -131,6 +135,25 @@ def compose_service_inline(render_engine):
         f"MONGO_INITDB_ROOT_PASSWORD={rendered.spec.password}",
         f"MONGO_INITDB_DATABASE={rendered.spec.database}",
     ]
+
+
+def generate_keeps_options(ports):
+    options = {"replica_set": "rs0", "tls": True}
+    spec = MONGO.generate(auth=True, ports=ports, answers={"options": options})
+    assert spec.options == options
+
+
+def only_non_default_options_reach_the_agent(ports):
+    options = {"auth_source": "", "replica_set": "rs0", "tls": False, "unknown": 1}
+    spec = MONGO.generate(auth=True, ports=ports, answers={"options": options})
+    assert MONGO.non_default_options(spec) == {"replica_set": "rs0"}
+    assert MONGO.agent_entry(spec)["options"] == {"replica_set": "rs0"}
+    tls_only = spec.with_options({"tls": True})
+    assert MONGO.agent_entry(tls_only)["options"] == {"tls": True}
+    custom_auth = spec.with_options({"auth_source": "users"})
+    assert MONGO.agent_entry(custom_auth)["options"] == {"auth_source": "users"}
+    defaults = spec.with_options({"auth_source": "", "replica_set": "", "tls": False})
+    assert "options" not in MONGO.agent_entry(defaults)
 
 
 def port_field_mentions_srv():
