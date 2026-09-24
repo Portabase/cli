@@ -2,6 +2,7 @@ import re
 
 import pytest
 
+from core.errors import ValidationError
 from core.specs import DatabaseSpec
 from engines import registry
 from engines.mongodb import MongoEngine
@@ -75,8 +76,8 @@ def fields():
         ("host", "text", "localhost"),
         ("port", "int", 27017),
         ("database", "text", None),
-        ("username", "text", None),
-        ("password", "secret", None),
+        ("username", "text", ""),
+        ("password", "secret", ""),
     ]
     assert MONGO.fields_new() == []
     assert field_specs(MONGO.option_fields()) == [

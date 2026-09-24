@@ -10,6 +10,15 @@ from engines.base import DbEngine
 from services.ports import PortAllocator
 
 
+def validate_port(value: int) -> int:
+    if not 0 <= value <= 65535:
+        raise ValidationError(
+            f"--port must be between 0 and 65535, got {value}",
+            hint="Use 0 for a mongodb+srv:// (Atlas) connection.",
+        )
+    return value
+
+
 class MongoEngine(DbEngine):
     key, display, default_port = "mongodb", "MongoDB", 27017
     template = "engines/mongodb.yml.j2"
@@ -75,3 +84,18 @@ class MongoEngine(DbEngine):
             out[f"{prefix}_USER"] = spec.username or ""
             out[f"{prefix}_PASS"] = spec.password or ""
         return out
+
+    @staticmethod
+    def is_srv(spec: DatabaseSpec) -> bool:
+        return not spec.managed and not spec.port
+
+    def agent_entry(self, spec: DatabaseSpec) -> dict[str, Any]:
+        entry = super().agent_entry(spec)
+        if self.is_srv(spec):
+            del entry["port"]
+        return entry
+
+    def describe(self, spec: DatabaseSpec) -> str:
+        if self.is_srv(spec):
+            return f"mongodb+srv://{spec.host}"
+        return super().describe(spec)
