@@ -258,4 +258,8 @@ Releases are cut from GitHub Actions, never from a local machine.
 
 Stable versions must match `X.Y.Z` and can only be cut from `main`.
 
-The workflow pushes with a token minted from the Portabase GitHub App (`APP_ID` repository variable, `APP_PRIVATE_KEY` secret), scoped to *Contents: write*. The app must be installed on this repository and allowed to push to `main`. A tag pushed with the default `GITHUB_TOKEN` would not trigger the release workflows.
+### Beta releases
+
+Every push to `dev` publishes a beta automatically (**Beta release** workflow): no version commit, no Discord notification. The version is the next patch of `pyproject.toml` suffixed with the run number (`26.09.2` → `26.09.3b57`), baked into the binaries at build time and published as a GitHub prerelease. Install it with `portabase config channel beta`; stable users never receive it.
+
+The Bump version workflow pushes with a token minted from the Portabase GitHub App (`APP_ID` repository variable, `APP_PRIVATE_KEY` secret), scoped to *Contents: write*. The app must be installed on this repository and allowed to push to `main`. A tag pushed with the default `GITHUB_TOKEN` would not trigger the release workflows.
