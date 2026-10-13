@@ -70,7 +70,10 @@ def fields():
         ("password", "secret", None),
     ]
     assert MSSQL.fields_new() == []
-    assert MSSQL.option_fields() == []
+    assert field_specs(MSSQL.option_fields()) == [
+        ("backup_format", "choice", "dacpac"),
+    ]
+    assert MSSQL.option_fields()[0].choices == ("dacpac", "bacpac")
 
 
 def from_existing():
@@ -115,6 +118,10 @@ def compose_service_inline(render_engine):
     ]
 
 
-def options_are_ignored(ports):
-    spec = MSSQL.generate(auth=True, ports=ports, answers={"options": {"x": 1}})
-    assert spec.options == {}
+def only_non_default_options_reach_the_agent(ports):
+    spec = MSSQL.generate(auth=True, ports=ports, answers={})
+    bacpac = spec.with_options({"backup_format": "bacpac", "unknown": 1})
+    assert MSSQL.non_default_options(bacpac) == {"backup_format": "bacpac"}
+    assert MSSQL.agent_entry(bacpac)["options"] == {"backup_format": "bacpac"}
+    dacpac = spec.with_options({"backup_format": "dacpac"})
+    assert "options" not in MSSQL.agent_entry(dacpac)
