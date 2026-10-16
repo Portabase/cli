@@ -36,6 +36,28 @@ class PostgresEngine(StandardSqlEngine):
                     "or superuser; most managed providers do not allow it."
                 ),
             ),
+            Field(
+                "exclude_tables",
+                "Exclude tables",
+                "list",
+                default=[],
+                help=(
+                    "Comma-separated pg_dump patterns (--exclude-table), e.g. "
+                    "public.search_index__*. Leave empty to dump every table. "
+                    "Excluded tables are dropped on restore with drop_schemas or "
+                    "drop_database. Requires Agent 1.23.0+."
+                ),
+            ),
+            Field(
+                "exclude_schemas",
+                "Exclude schemas",
+                "list",
+                default=[],
+                help=(
+                    "Comma-separated pg_dump patterns (--exclude-schema). Leave empty "
+                    "to dump every schema. Requires Agent 1.23.0+."
+                ),
+            ),
         ]
 
 

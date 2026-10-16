@@ -4,7 +4,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Literal
 
-FieldKind = Literal["text", "int", "secret", "bool", "choice", "path"]
+FieldKind = Literal["text", "int", "secret", "bool", "choice", "path", "list"]
 
 
 @dataclass(frozen=True)

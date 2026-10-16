@@ -28,6 +28,9 @@ class Form:
                 field.prompt, field.choices, default=field.default
             ),
             "path": lambda field: self.prompt.path(field.prompt, default=field.default),
+            "list": lambda field: self.prompt.text(
+                field.prompt, default=", ".join(field.default or [])
+            ),
         }
 
     def ask(self, field: Field, value: Any | None = None) -> Any:
@@ -120,4 +123,7 @@ class Form:
             raise ValidationError(f"{field.flag} must be true or false, got {value!r}")
         if field.kind in ("text", "secret", "path", "choice"):
             return str(value)
+        if field.kind == "list":
+            items = value.split(",") if isinstance(value, str) else value
+            return [str(item).strip() for item in items if str(item).strip()]
         return value
