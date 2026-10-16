@@ -1,9 +1,12 @@
 import re
+from typing import cast
 
 from core.specs import DatabaseSpec
 from engines import registry
 from engines.postgresql import PostgresEngine
 from tests.support import EXISTING_ANSWERS, field_specs
+from ui.components.prompt import Prompt
+from ui.form import Form
 
 PG = registry.get("postgresql")
 HEALTH = {"interval": "10s", "timeout": "5s", "retries": 5}
@@ -73,6 +76,8 @@ def fields():
     assert field_specs(PG.option_fields()) == [
         ("keep_ownership", "bool", False),
         ("clean_mode", "choice", "clean"),
+        ("exclude_tables", "list", []),
+        ("exclude_schemas", "list", []),
     ]
     assert PG.option_fields()[1].choices == (
         "clean",
@@ -137,3 +142,26 @@ def only_non_default_options_reach_the_agent(ports):
     assert PG.non_default_options(spec) == {"keep_ownership": True}
     assert PG.agent_entry(spec)["options"] == {"keep_ownership": True}
     assert "options" not in PG.agent_entry(spec.with_options({"clean_mode": "clean"}))
+
+
+def exclude_options_are_comma_separated_pattern_lists(ports):
+    form = Form(cast(Prompt, None), non_interactive=True)
+    options = form.collect(
+        PG.option_fields(),
+        {
+            "exclude_tables": " public.search_index__*, ,audit.tmp_* ",
+            "exclude_schemas": "-x",
+        },
+    )
+    assert options["exclude_tables"] == ["public.search_index__*", "audit.tmp_*"]
+    assert options["exclude_schemas"] == ["-x"]
+
+    spec = PG.generate(auth=True, ports=ports, answers={"options": options})
+    assert PG.agent_entry(spec)["options"] == {
+        "exclude_tables": ["public.search_index__*", "audit.tmp_*"],
+        "exclude_schemas": ["-x"],
+    }
+
+    defaults = form.collect(PG.option_fields(), {"exclude_tables": " , "})
+    assert defaults["exclude_tables"] == defaults["exclude_schemas"] == []
+    assert "options" not in PG.agent_entry(spec.with_options(defaults))
