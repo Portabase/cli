@@ -8,5 +8,5 @@ __pycache__/
 
 .claude
 .codex/
-
+/docs
 test/
