@@ -16,6 +16,7 @@ EXPECTED = [
     "valkey",
     "mssql",
     "docker-volume",
+    "files",
 ]
 
 

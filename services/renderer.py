@@ -126,7 +126,7 @@ class ComposeRenderer:
             "docker_socket": project.needs_docker_socket,
             "mounts": [
                 {"host": host, "container": container}
-                for host, container in project.sqlite_mounts
+                for host, container in project.mounts
             ],
             "services": [self._service(spec, inline) for spec in project.managed],
             "tz_var": _var(env, "TZ", inline),

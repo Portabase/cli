@@ -96,7 +96,10 @@ class DbAddCommand(_DbCommand):
             bool, typer.Option("--password-stdin", help="Read password from stdin")
         ] = False,
         path: Annotated[
-            str | None, typer.Option("--path", help="SQLite file path (existing)")
+            str | None,
+            typer.Option(
+                "--path", help="SQLite file path (existing) or files directory"
+            ),
         ] = None,
         db_name: Annotated[
             str | None, typer.Option("--name", help="SQLite file name (new)")
@@ -243,7 +246,7 @@ class DbListCommand(_DbCommand):
             )
             user = (
                 "N/A"
-                if database.engine in ("sqlite", "docker-volume")
+                if database.engine in ("sqlite", "docker-volume", "files")
                 else (database.username or "")
             )
             rows.append(
