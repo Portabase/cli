@@ -5,6 +5,7 @@ from collections.abc import Iterable, Iterator
 from core.errors import ValidationError
 from engines.base import DbEngine
 from engines.docker_volume import DockerVolumeEngine
+from engines.files import FilesEngine
 from engines.firebird import FirebirdEngine
 from engines.mariadb import MariaDbEngine
 from engines.mongodb import MongoEngine
@@ -58,6 +59,7 @@ ALL = (
     ValkeyEngine(),
     MssqlEngine(),
     DockerVolumeEngine(),
+    FilesEngine(),
 )
 
 registry = EngineRegistry(ALL)

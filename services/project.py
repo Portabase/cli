@@ -7,8 +7,8 @@ from typing import Any, Literal
 
 from core.errors import ConfigError, ValidationError
 from core.specs import DatabaseSpec
+from engines import registry
 from engines.base import DbEngine
-from engines.sqlite import SqliteEngine
 from services import auth_providers as ap
 from services import settings as cfg
 from services.compose_facts import CA_BUNDLE_IN_CONTAINER, ComposeFacts
@@ -61,7 +61,7 @@ def spec_from_entry(entry: dict[str, Any], env: EnvFile) -> DatabaseSpec:
         username=str(entry["username"]) if entry.get("username") is not None else None,
         password=_opt_str(entry, "password"),
         root_password=root_password,
-        path=_opt_str(entry, "database") if engine == "sqlite" else None,
+        path=_opt_str(entry, "database" if engine == "sqlite" else "path"),
         volume=_opt_str(entry, "volume_name"),
         container=_opt_str(entry, "container_name"),
         options=dict(entry.get("options") or {}),
@@ -117,13 +117,12 @@ class AgentProject:
         return any(database.engine == "docker-volume" for database in self.databases)
 
     @property
-    def sqlite_mounts(self) -> list[tuple[str, str]]:
+    def mounts(self) -> list[tuple[str, str]]:
         mounts: list[tuple[str, str]] = []
         for database in self.databases:
-            if database.engine == "sqlite":
-                mount = SqliteEngine.mount_for(database)
-                if mount and mount not in mounts:
-                    mounts.append(mount)
+            mount = registry.get(database.engine).mount_for(database)
+            if mount and mount not in mounts:
+                mounts.append(mount)
         return mounts
 
     def validate(self) -> None:

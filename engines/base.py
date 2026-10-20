@@ -126,6 +126,11 @@ class DbEngine(ABC):
     def describe(self, spec: DatabaseSpec) -> str:
         return f"{spec.host}:{spec.port}"
 
+    @staticmethod
+    def mount_for(spec: DatabaseSpec) -> tuple[str, str] | None:
+        """(host, container) bind mount the agent needs for this database."""
+        return None
+
     def non_default_options(self, spec: DatabaseSpec) -> dict[str, Any]:
         defaults = {field.name: field.default for field in self.option_fields()}
         return {

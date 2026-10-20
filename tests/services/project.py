@@ -20,6 +20,7 @@ PG = registry.get("postgresql")
 FIREBIRD = registry.get("firebird")
 SQLITE = registry.get("sqlite")
 VOLUME = registry.get("docker-volume")
+FILES = registry.get("files")
 KEYCLOAK = AuthProvider(
     kind="oidc",
     id="my-kc",
@@ -89,14 +90,18 @@ def spec_from_entry_external(tmp_path):
     assert spec.id
 
 
-def spec_from_entry_sqlite_and_volume(tmp_path):
+def spec_from_entry_sqlite_volume_and_files(tmp_path):
     env = EnvFile(tmp_path / ".env")
     sqlite = spec_from_entry({"type": "sqlite", "database": "/config/app.sqlite"}, env)
     volume = spec_from_entry(
         {"type": "docker-volume", "volume_name": "v", "container_name": ""}, env
     )
+    files = spec_from_entry(
+        {"type": "files", "path": "/data/srv", "options": {"method": "sync"}}, env
+    )
     assert (sqlite.path, sqlite.host) == ("/config/app.sqlite", None)
     assert (volume.volume, volume.container) == ("v", None)
+    assert (files.path, files.options) == ("/data/srv", {"method": "sync"})
 
 
 def agent_create_does_not_write_env(agent):
@@ -199,7 +204,7 @@ def agent_missing_ca_bundle(agent):
     assert not agent.env.exists
 
 
-def agent_docker_socket_and_sqlite_mounts(agent, ports):
+def agent_docker_socket_and_mounts(agent, ports):
     assert not agent.needs_docker_socket
     agent.add(VOLUME.from_existing({"volume": "v"}), VOLUME)
     for _ in range(2):
@@ -207,8 +212,13 @@ def agent_docker_socket_and_sqlite_mounts(agent, ports):
             SQLITE.generate(auth=False, ports=ports, answers={"name": "app"}), SQLITE
         )
     agent.add(SQLITE.from_existing({"path": "/abs/app.db"}), SQLITE)
+    for _ in range(2):
+        agent.add(FILES.from_existing({"path": "/srv"}), FILES)
     assert agent.needs_docker_socket
-    assert agent.sqlite_mounts == [("./app.sqlite", "/config/app.sqlite")]
+    assert agent.mounts == [
+        ("./app.sqlite", "/config/app.sqlite"),
+        ("/srv", "/data/srv"),
+    ]
 
 
 def agent_load_round_trip(agent, ports, renderer):
