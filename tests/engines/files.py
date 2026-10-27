@@ -1,3 +1,5 @@
+from typing import cast
+
 import pytest
 
 from core.errors import ValidationError
@@ -5,9 +7,12 @@ from core.specs import DatabaseSpec
 from engines import registry
 from engines.files import FilesEngine
 from tests.support import agent_service, field_specs
+from ui.components.prompt import Prompt
+from ui.form import Form
 
 FILES = registry.get("files")
 MOUNT = "/srv/uploads:/data/srv/uploads"
+FORM = Form(cast(Prompt, None), non_interactive=True)
 
 
 def attributes():
@@ -16,6 +21,7 @@ def attributes():
     assert FILES.template is None
     assert (FILES.auth_variants, FILES.has_modes) == (False, False)
     assert "restore" in (FILES.warning or "")
+    assert "1.25.0" in (FILES.warning or "")
 
 
 def generate(ports):
@@ -46,6 +52,14 @@ def agent_entry():
         "method": "snapshot",
         "exclude": ["*.tmp"],
     }
+    limited = bare.with_options(
+        {"method": "sync", "max_delete": 100, "max_delete_size": "10G"}
+    )
+    assert FILES.agent_entry(limited)["options"] == {
+        "method": "sync",
+        "max_delete": 100,
+        "max_delete_size": "10G",
+    }
 
 
 def fields():
@@ -55,8 +69,10 @@ def fields():
         ("method", "choice", "archive"),
         ("exclude", "list", []),
         ("one_file_system", "bool", False),
+        ("max_delete", "text", ""),
+        ("max_delete_size", "text", ""),
     ]
-    assert FILES.option_fields()[0].choices == ("archive", "snapshot", "sync")
+    assert FILES.option_fields()[0].choices == ("archive", "snapshot", "sync", "copy")
 
 
 def from_existing():
@@ -112,3 +128,40 @@ def exclude_rejects_brace_alternation():
 def mount_for(path, mount):
     spec = DatabaseSpec(id="1", engine="files", name="n", path=path)
     assert FilesEngine.mount_for(spec) == mount
+
+
+def delete_limits_are_written_only_when_set():
+    options = FORM.collect(
+        FILES.option_fields(),
+        {"method": "sync", "max_delete": " 0 ", "max_delete_size": "1.5g"},
+    )
+    assert (options["max_delete"], options["max_delete_size"]) == (0, "1.5g")
+
+    unset = FORM.collect(FILES.option_fields(), {"method": "sync"})
+    spec = FILES.from_existing({"path": "/srv"}).with_options(unset)
+    assert FILES.agent_entry(spec)["options"] == {"method": "sync"}
+
+
+@pytest.mark.parametrize("method", ["archive", "snapshot", "copy"])
+def delete_limits_only_apply_to_sync(method):
+    options = FORM.collect(FILES.option_fields(), {"method": method})
+    assert "max_delete" not in options
+    assert "max_delete_size" not in options
+    with pytest.raises(ValidationError, match="--max-delete does not apply"):
+        FORM.collect(FILES.option_fields(), {"method": method, "max_delete": "5"})
+
+
+@pytest.mark.parametrize(
+    ("option", "value"),
+    [
+        ("max_delete", "-1"),
+        ("max_delete", "1.5"),
+        ("max_delete", "ten"),
+        ("max_delete_size", "10GB"),
+        ("max_delete_size", "G"),
+        ("max_delete_size", "1,5G"),
+    ],
+)
+def delete_limits_reject_invalid_values(option, value):
+    with pytest.raises(ValidationError):
+        FORM.collect(FILES.option_fields(), {"method": "sync", option: value})

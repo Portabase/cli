@@ -7,13 +7,14 @@ from core.fields import Field
 
 def defaults():
     field = Field("name", "Prompt")
-    assert (field.kind, field.default, field.choices, field.help, field.validator) == (
-        "text",
-        None,
-        (),
-        None,
-        None,
-    )
+    assert (
+        field.kind,
+        field.default,
+        field.choices,
+        field.help,
+        field.validator,
+        field.when,
+    ) == ("text", None, (), None, None, None)
 
 
 @pytest.mark.parametrize(

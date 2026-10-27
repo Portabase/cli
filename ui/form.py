@@ -48,7 +48,16 @@ class Form:
     def collect(
         self, fields: Sequence[Field], values: dict[str, Any]
     ) -> dict[str, Any]:
-        return {field.name: self.ask(field, values.get(field.name)) for field in fields}
+        answers: dict[str, Any] = {}
+        for field in fields:
+            value = values.get(field.name)
+            if field.when is None or field.when(answers):
+                answers[field.name] = self.ask(field, value)
+            elif value is not None:
+                raise ValidationError(
+                    f"{field.flag} does not apply here.", hint=field.help
+                )
+        return answers
 
     def text(
         self, prompt: str, *, value=None, default=None, validator=None, name="value"

@@ -16,6 +16,7 @@ class Field:
     choices: tuple[str, ...] = ()
     help: str | None = None
     validator: Callable[[Any], Any] | None = None
+    when: Callable[[dict[str, Any]], bool] | None = None
 
     @property
     def flag(self) -> str:

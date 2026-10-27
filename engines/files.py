@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import posixpath
+import re
 from typing import Any
 
 from core.errors import ValidationError
@@ -10,6 +11,7 @@ from engines.base import DbEngine
 from services.ports import PortAllocator
 
 DATA_DIR = "/data"
+SIZE_PATTERN = re.compile(r"\d+(\.\d+)?[bkmgtp]?", re.IGNORECASE | re.ASCII)
 
 
 def host_dir(value: str) -> str:
@@ -36,6 +38,29 @@ def no_braces(patterns: list[str]) -> list[str]:
     return patterns
 
 
+def file_count(value: str) -> int | str:
+    count = value.strip()
+    if not count:
+        return ""
+    if not count.isdecimal():
+        raise ValidationError(f"Must be a whole number >= 0, got {value!r}")
+    return int(count)
+
+
+def file_size(value: str) -> str:
+    size = value.strip()
+    if size and not SIZE_PATTERN.fullmatch(size):
+        raise ValidationError(
+            f"Invalid size {value!r}",
+            hint="e.g. 500M or 10G (B, K, M, G, T or P); no suffix means KiB.",
+        )
+    return size
+
+
+def sync_only(answers: dict[str, Any]) -> bool:
+    return answers.get("method") == "sync"
+
+
 class FilesEngine(DbEngine):
     key, display = "files", "Files"
     template = None
@@ -43,7 +68,8 @@ class FilesEngine(DbEngine):
     label_default = "Files"
     warning = (
         f"The directory is mounted read-write under {DATA_DIR}: a restore replaces "
-        "its content (excluded paths are kept). Requires Agent 1.24.0+."
+        "its content (excluded paths are kept). Requires Agent 1.24.0+; the copy "
+        "method and the sync delete limits require Agent 1.25.0+."
     )
 
     def fields_existing(self) -> list[Field]:
@@ -66,12 +92,15 @@ class FilesEngine(DbEngine):
                 "Backup method",
                 "choice",
                 default="archive",
-                choices=("archive", "snapshot", "sync"),
+                choices=("archive", "snapshot", "sync", "copy"),
                 help=(
                     "archive: a tar.gz archive per run. snapshot: incremental, "
                     "deduplicated restic snapshots. sync: mirrors the directory onto "
                     "each storage; deletions propagate and it cannot be restored from "
-                    "Portabase. Cannot be changed once the source exists."
+                    "Portabase. copy: like sync, but files removed from the source are "
+                    "kept on the storage; changed files are overwritten, with no "
+                    "history, and it cannot be restored from Portabase. Cannot be "
+                    "changed once the source exists."
                 ),
             ),
             Field(
@@ -92,6 +121,31 @@ class FilesEngine(DbEngine):
                 "bool",
                 default=False,
                 help="Skip mount points found inside the directory.",
+            ),
+            Field(
+                "max_delete",
+                "Max deletions per run",
+                "text",
+                default="",
+                validator=file_count,
+                when=sync_only,
+                help=(
+                    "Sync only. A run that would delete more files, or more data, "
+                    "than these limits fails before deleting anything. Leave empty "
+                    "for no limit."
+                ),
+            ),
+            Field(
+                "max_delete_size",
+                "Max deleted size per run",
+                "text",
+                default="",
+                validator=file_size,
+                when=sync_only,
+                help=(
+                    "Sync only. A size such as 500M or 10G (B, K, M, G, T or P); a "
+                    "number without suffix is in KiB. Leave empty for no limit."
+                ),
             ),
         ]
 
