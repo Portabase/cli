@@ -1,11 +1,25 @@
 import re
+from typing import cast
 
+import pytest
+import yaml
+
+from core.errors import ValidationError
 from core.specs import DatabaseSpec
 from engines import registry
 from engines.mssql import MssqlEngine
-from tests.support import EXISTING_ANSWERS, field_specs
+from services.project import AgentProject
+from tests.support import AGENT_ENV, EXISTING_ANSWERS, agent_service, field_specs
+from ui.components.prompt import Prompt
+from ui.form import Form
 
 MSSQL = registry.get("mssql")
+FORM = Form(cast(Prompt, None), non_interactive=True)
+BAK_OPTIONS = {
+    "backup_format": "bak",
+    "bak_server_path": r"D:\PortabaseBackups",
+    "bak_agent_path": "/mnt/sql-backups",
+}
 
 
 def attributes():
@@ -72,8 +86,11 @@ def fields():
     assert MSSQL.fields_new() == []
     assert field_specs(MSSQL.option_fields()) == [
         ("backup_format", "choice", "dacpac"),
+        ("bak_server_path", "text", ""),
+        ("bak_agent_path", "text", ""),
+        ("bak_verify", "bool", False),
     ]
-    assert MSSQL.option_fields()[0].choices == ("dacpac", "bacpac")
+    assert MSSQL.option_fields()[0].choices == ("dacpac", "bacpac", "bak")
 
 
 def from_existing():
@@ -125,3 +142,69 @@ def only_non_default_options_reach_the_agent(ports):
     assert MSSQL.agent_entry(bacpac)["options"] == {"backup_format": "bacpac"}
     dacpac = spec.with_options({"backup_format": "dacpac"})
     assert "options" not in MSSQL.agent_entry(dacpac)
+
+
+def bak_options_reach_the_agent():
+    options = FORM.collect(MSSQL.option_fields(), {**BAK_OPTIONS, "bak_verify": "yes"})
+    spec = MSSQL.from_existing(EXISTING_ANSWERS).with_options(options)
+    assert MSSQL.agent_entry(spec)["options"] == {**BAK_OPTIONS, "bak_verify": True}
+
+
+def bak_verify_off_is_not_written():
+    options = FORM.collect(MSSQL.option_fields(), BAK_OPTIONS)
+    spec = MSSQL.from_existing(EXISTING_ANSWERS).with_options(options)
+    assert MSSQL.agent_entry(spec)["options"] == BAK_OPTIONS
+
+
+def bak_mounts_the_folder_on_the_agent():
+    spec = MSSQL.from_existing(EXISTING_ANSWERS)
+    assert MSSQL.mount_for(spec) is None
+    assert MSSQL.mount_for(spec.with_options({"backup_format": "bacpac"})) is None
+    assert MSSQL.mount_for(spec.with_options(BAK_OPTIONS)) == (
+        "/mnt/sql-backups",
+        "/mnt/sql-backups",
+    )
+
+
+@pytest.mark.parametrize("backup_format", ["dacpac", "bacpac"])
+def bak_options_only_apply_to_bak(backup_format):
+    options = FORM.collect(MSSQL.option_fields(), {"backup_format": backup_format})
+    assert options == {"backup_format": backup_format}
+    with pytest.raises(ValidationError, match="--bak-server-path does not apply"):
+        FORM.collect(
+            MSSQL.option_fields(),
+            {"backup_format": backup_format, "bak_server_path": "D:\\x"},
+        )
+
+
+@pytest.mark.parametrize(
+    ("overrides", "message"),
+    [
+        ({"bak_server_path": "  "}, "bak_server_path"),
+        ({"bak_agent_path": ""}, "bak_agent_path"),
+        ({"bak_agent_path": "mnt/sql-backups"}, "absolute"),
+        ({"bak_agent_path": "/"}, "absolute"),
+        ({"bak_agent_path": "/mnt/a:b"}, "cannot contain"),
+    ],
+)
+def bak_paths_are_required_and_checked(overrides, message):
+    with pytest.raises(ValidationError, match=message):
+        FORM.collect(MSSQL.option_fields(), {**BAK_OPTIONS, **overrides})
+
+
+def bak_is_refused_on_a_new_database(ports):
+    with pytest.raises(ValidationError, match="existing"):
+        MSSQL.generate(auth=True, ports=ports, answers={"options": BAK_OPTIONS})
+
+
+def bak_compose_mounts_the_folder(tmp_path, renderer):
+    project = AgentProject.create(tmp_path, dict(AGENT_ENV), host_gateway=False)
+    spec = MSSQL.from_existing(EXISTING_ANSWERS).with_options(BAK_OPTIONS)
+    project.add(spec, MSSQL)
+    result = renderer.render_agent(project, inline=False)
+    result.validate()
+    doc = yaml.safe_load(result.compose)
+    assert doc["services"] == {
+        "agent": agent_service("/mnt/sql-backups:/mnt/sql-backups")
+    }
+    assert result.databases == [MSSQL.agent_entry(spec)]
