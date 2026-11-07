@@ -1,4 +1,5 @@
 import re
+from typing import cast
 
 import pytest
 
@@ -7,6 +8,8 @@ from core.specs import DatabaseSpec
 from engines import registry
 from engines.mongodb import MongoEngine
 from tests.support import EXISTING_ANSWERS, field_specs
+from ui.components.prompt import Prompt
+from ui.form import Form
 
 MONGO = registry.get("mongodb")
 HEALTH = {"interval": "10s", "timeout": "5s", "retries": 5}
@@ -84,6 +87,8 @@ def fields():
         ("auth_source", "text", ""),
         ("replica_set", "text", ""),
         ("tls", "bool", False),
+        ("exclude_collections", "list", []),
+        ("exclude_collections_with_prefix", "list", []),
     ]
 
 
@@ -154,6 +159,30 @@ def only_non_default_options_reach_the_agent(ports):
     assert MONGO.agent_entry(custom_auth)["options"] == {"auth_source": "users"}
     defaults = spec.with_options({"auth_source": "", "replica_set": "", "tls": False})
     assert "options" not in MONGO.agent_entry(defaults)
+
+
+def exclude_options_are_comma_separated_lists(ports):
+    form = Form(cast(Prompt, None), non_interactive=True)
+    options = form.collect(
+        MONGO.option_fields(),
+        {
+            "exclude_collections": " events, ,sessions ",
+            "exclude_collections_with_prefix": "cache_,tmp_",
+        },
+    )
+    assert options["exclude_collections"] == ["events", "sessions"]
+    assert options["exclude_collections_with_prefix"] == ["cache_", "tmp_"]
+
+    spec = MONGO.generate(auth=True, ports=ports, answers={"options": options})
+    assert MONGO.agent_entry(spec)["options"] == {
+        "exclude_collections": ["events", "sessions"],
+        "exclude_collections_with_prefix": ["cache_", "tmp_"],
+    }
+
+    defaults = form.collect(MONGO.option_fields(), {"exclude_collections": " , "})
+    assert defaults["exclude_collections"] == []
+    assert defaults["exclude_collections_with_prefix"] == []
+    assert "options" not in MONGO.agent_entry(spec.with_options(defaults))
 
 
 def port_field_mentions_srv():

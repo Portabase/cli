@@ -5,8 +5,8 @@ import sys
 from dataclasses import dataclass
 from typing import Annotated
 
-import click
 import typer
+from typer._click.exceptions import NoArgsIsHelpError, UsageError
 
 from commands.agent import AgentCommands
 from commands.build import BuildCommand
@@ -139,7 +139,7 @@ def build_app(
     return app, checker
 
 
-def _usage_hint(error: click.UsageError) -> str:
+def _usage_hint(error: UsageError) -> str:
     group = error.ctx.command.name if error.ctx and error.ctx.command else None
     match = re.match(r"No such command '(.+)'", error.format_message())
     if match and match.group(1) == "db":
@@ -190,11 +190,11 @@ def main() -> None:
         ui.error(error)
         telemetry.error(error)
         exit_code = error.exit_code
-    except click.exceptions.NoArgsIsHelpError:
+    except NoArgsIsHelpError:
         exit_code = 0
-    except click.exceptions.Exit as error:
+    except typer.Exit as error:
         exit_code = error.exit_code
-    except click.UsageError as error:
+    except UsageError as error:
         err = ValidationError(error.format_message(), hint=_usage_hint(error))
         ui.error(err)
         telemetry.error(err)

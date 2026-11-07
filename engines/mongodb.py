@@ -73,6 +73,29 @@ class MongoEngine(DbEngine):
                 default=False,
                 help="When enabled, adds tls=true to the URI to force a TLS connection.",
             ),
+            Field(
+                "exclude_collections",
+                "Exclude collections",
+                "list",
+                default=[],
+                help=(
+                    "Comma-separated collection names (mongodump "
+                    "--excludeCollection), e.g. events,sessions. Leave empty to "
+                    "dump every collection. Collections already in the restore "
+                    "target are left untouched. Requires Agent 1.26.0+."
+                ),
+            ),
+            Field(
+                "exclude_collections_with_prefix",
+                "Exclude collections with prefix",
+                "list",
+                default=[],
+                help=(
+                    "Comma-separated collection name prefixes (mongodump "
+                    "--excludeCollectionsWithPrefix), e.g. cache_,tmp_. Leave empty "
+                    "to dump every collection. Requires Agent 1.26.0+."
+                ),
+            ),
         ]
 
     def generate(
