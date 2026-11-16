@@ -1,12 +1,22 @@
 import re
+from typing import cast
 
+import pytest
+import yaml
+
+from core.errors import ValidationError
 from core.specs import DatabaseSpec
 from engines import registry
 from engines.postgresql import PostgresClusterEngine
-from tests.support import EXISTING_ANSWERS, field_specs
+from services.project import AgentProject
+from tests.support import AGENT_ENV, EXISTING_ANSWERS, agent_service, field_specs
+from ui.components.prompt import Prompt
+from ui.form import Form
 
 CLUSTER = registry.get("postgresql-cluster")
 HEALTH = {"interval": "10s", "timeout": "5s", "retries": 5}
+FORM = Form(cast(Prompt, None), non_interactive=True)
+PHYSICAL = {"method": "physical", "full_every_days": 7}
 
 
 def attributes():
@@ -76,7 +86,11 @@ def fields():
         ("password", "secret", None),
     ]
     assert CLUSTER.fields_new() == []
-    assert CLUSTER.option_fields() == []
+    assert field_specs(CLUSTER.option_fields()) == [
+        ("method", "choice", "archive"),
+        ("full_every_days", "int", 7),
+    ]
+    assert CLUSTER.option_fields()[0].choices == ("archive", "physical")
 
 
 def from_existing():
@@ -133,3 +147,63 @@ def options_are_dropped(ports):
     )
     assert CLUSTER.non_default_options(spec) == {}
     assert "options" not in CLUSTER.agent_entry(spec)
+
+
+def archive_writes_no_options():
+    options = FORM.collect(CLUSTER.option_fields(), {"method": "archive"})
+    spec = CLUSTER.from_existing(EXISTING_ANSWERS).with_options(options)
+    assert "options" not in CLUSTER.agent_entry(spec)
+    assert CLUSTER.mount_for(spec) is None
+
+
+def physical_reaches_the_agent():
+    options = FORM.collect(CLUSTER.option_fields(), {"method": "physical"})
+    assert options == PHYSICAL
+    spec = CLUSTER.from_existing(EXISTING_ANSWERS).with_options(options)
+    assert CLUSTER.agent_entry(spec)["options"] == {"method": "physical"}
+    longer = FORM.collect(
+        CLUSTER.option_fields(), {"method": "physical", "full_every_days": "14"}
+    )
+    assert CLUSTER.agent_entry(spec.with_options(longer))["options"] == {
+        "method": "physical",
+        "full_every_days": 14,
+    }
+
+
+@pytest.mark.parametrize(
+    ("answers", "message"),
+    [
+        ({"method": "physical", "full_every_days": "0"}, "at least 1"),
+        ({"method": "physical", "full_every_days": "x"}, "whole number"),
+        ({"method": "archive", "full_every_days": "3"}, "does not apply"),
+        ({"method": "wal"}, "Invalid value"),
+    ],
+)
+def physical_options_are_checked(answers, message):
+    with pytest.raises(ValidationError, match=message):
+        FORM.collect(CLUSTER.option_fields(), answers)
+
+
+def physical_is_refused_on_a_new_database(ports):
+    with pytest.raises(ValidationError, match="existing"):
+        CLUSTER.generate(auth=True, ports=ports, answers={"options": PHYSICAL})
+
+
+def physical_compose_mounts_the_restore_folder(tmp_path, renderer):
+    project = AgentProject.create(tmp_path, dict(AGENT_ENV), host_gateway=False)
+    spec = CLUSTER.from_existing(EXISTING_ANSWERS).with_options(PHYSICAL)
+    project.add(spec, CLUSTER)
+    project.add(CLUSTER.from_existing(EXISTING_ANSWERS).with_options(PHYSICAL), CLUSTER)
+    result = renderer.render_agent(project, inline=False)
+    result.validate()
+    agent = yaml.safe_load(result.compose)["services"]["agent"]
+    expected = agent_service("./restores:/restores")
+    expected["environment"]["RESTORE_PATH"] = "/restores"
+    assert agent == expected
+
+
+def archive_compose_has_no_restore_folder(tmp_path, renderer):
+    project = AgentProject.create(tmp_path, dict(AGENT_ENV), host_gateway=False)
+    project.add(CLUSTER.from_existing(EXISTING_ANSWERS), CLUSTER)
+    result = renderer.render_agent(project, inline=False)
+    assert yaml.safe_load(result.compose)["services"]["agent"] == agent_service()

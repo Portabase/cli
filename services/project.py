@@ -9,6 +9,7 @@ from core.errors import ConfigError, ValidationError
 from core.specs import DatabaseSpec
 from engines import registry
 from engines.base import DbEngine
+from engines.postgresql import RESTORE_MOUNT
 from services import auth_providers as ap
 from services import settings as cfg
 from services.compose_facts import CA_BUNDLE_IN_CONTAINER, ComposeFacts
@@ -124,6 +125,10 @@ class AgentProject:
             if mount and mount not in mounts:
                 mounts.append(mount)
         return mounts
+
+    @property
+    def restore_path(self) -> str | None:
+        return RESTORE_MOUNT[1] if RESTORE_MOUNT in self.mounts else None
 
     def validate(self) -> None:
         bundle = self.ca_bundle

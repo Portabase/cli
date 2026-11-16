@@ -25,6 +25,9 @@ services:
 {%- for name, value in extra_env %}
       {{ name }}: "{{ value }}"
 {%- endfor %}
+{%- if restore_path %}
+      RESTORE_PATH: "{{ restore_path }}"
+{%- endif %}
 {%- if ca_bundle %}
       SSL_CERT_FILE: "{{ ssl_cert_file_var }}"
 {%- endif %}
