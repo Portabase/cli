@@ -13,8 +13,12 @@ def _setting(kind, default=None):
     return cfg.Setting(Field("x", "X", kind, default=default), "X", "s")
 
 
-def strong_password_accepts():
-    assert cfg.strong_password("Abcdef1!") == "Abcdef1!"
+@pytest.mark.parametrize(
+    "value",
+    ["Abcdef1!", "Abcdefgh12345678", "9f86d081884c7d659a2feaa0c55ad015"],
+)
+def strong_password_accepts(value):
+    assert cfg.strong_password(value) == value
 
 
 @pytest.mark.parametrize(
@@ -38,7 +42,7 @@ def strong_password_lists_every_missing_rule():
         cfg.strong_password("")
     assert exc.value.hint == (
         "It needs at least 8 characters, a lowercase letter, an uppercase letter, "
-        "a digit, a special character."
+        "a digit, a special character, or use at least 16 characters."
     )
 
 
