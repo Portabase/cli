@@ -11,6 +11,8 @@ from core.utils import validate_edge_key
 
 
 def strong_password(value: str) -> str:
+    if len(value) >= 16:
+        return value
     checks = (
         (len(value) >= 8, "at least 8 characters"),
         (re.search(r"[a-z]", value), "a lowercase letter"),
@@ -21,7 +23,8 @@ def strong_password(value: str) -> str:
     missing = [label for ok, label in checks if not ok]
     if missing:
         raise ValidationError(
-            "Password too weak.", hint="It needs " + ", ".join(missing) + "."
+            "Password too weak.",
+            hint="It needs " + ", ".join(missing) + ", or use at least 16 characters.",
         )
     return value
 
