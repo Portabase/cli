@@ -1,7 +1,25 @@
 from __future__ import annotations
 
+from typing import Any
+
+from core.errors import ValidationError
 from core.fields import Field
+from core.specs import DatabaseSpec
 from engines.base import StandardSqlEngine
+from services.ports import PortAllocator
+
+# Physical restores write a data directory into RESTORE_PATH on the agent.
+RESTORE_MOUNT = ("./restores", "/restores")
+
+
+def physical_only(answers: dict[str, Any]) -> bool:
+    return answers.get("method") == "physical"
+
+
+def at_least_one_day(value: int) -> int:
+    if value < 1:
+        raise ValidationError("full_every_days must be at least 1.")
+    return value
 
 
 class PostgresEngine(StandardSqlEngine):
@@ -65,7 +83,56 @@ class PostgresClusterEngine(StandardSqlEngine):
     key, display, default_port = "postgresql-cluster", "PostgreSQL Cluster", 5432
     template, slug, db_prefix = "engines/postgresql-cluster.yml.j2", "pg", "pg"
     warning = (
-        "Postgres Cluster requires a superuser. Cluster backup/restore uses "
-        "pg_dumpall, which dumps all databases and global objects (roles, "
-        "tablespaces). The provided user must be a Postgres superuser."
+        "Postgres Cluster with the archive method uses pg_dumpall, which dumps all "
+        "databases and global objects (roles, tablespaces): the user must be a "
+        "Postgres superuser. The physical method needs PostgreSQL 17+, a role "
+        "with REPLICATION, a pg_hba.conf replication line and summarize_wal = on."
     )
+
+    def option_fields(self) -> list[Field]:
+        return [
+            Field(
+                "method",
+                "Backup method",
+                "choice",
+                default="archive",
+                choices=("archive", "physical"),
+                help=(
+                    "archive: pg_dumpall of every database (default). physical: "
+                    "pg_basebackup of the whole cluster, a full backup then "
+                    "incrementals holding only the changed blocks (PostgreSQL 17+). Restores rebuild "
+                    "a data directory in ./restores on the agent host. Requires "
+                    "Agent 1.27.0+ and Dashboard 1.37.0+. Cannot be changed later."
+                ),
+            ),
+            Field(
+                "full_every_days",
+                "Start a new full backup every N days",
+                "int",
+                default=7,
+                validator=at_least_one_day,
+                when=physical_only,
+                help=(
+                    "The next backup is a new full once the chain's full is this "
+                    "old. Not applied while the source has a full backup schedule "
+                    "in the dashboard."
+                ),
+            ),
+        ]
+
+    @staticmethod
+    def mount_for(spec: DatabaseSpec) -> tuple[str, str] | None:
+        return RESTORE_MOUNT if physical_only(spec.options) else None
+
+    def generate(
+        self, *, auth: bool, ports: PortAllocator, answers: dict[str, Any]
+    ) -> DatabaseSpec:
+        if physical_only(answers.get("options", {})):
+            # ponytail: a managed container would need summarize_wal and a
+            # replication pg_hba.conf line; refuse until someone asks for it.
+            raise ValidationError(
+                "The physical method needs a server set up for replication, so it "
+                "only works on an existing database.",
+                hint="Use --mode existing, or the archive method for a new database.",
+            )
+        return super().generate(auth=auth, ports=ports, answers=answers)

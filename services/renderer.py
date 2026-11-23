@@ -136,6 +136,7 @@ class ComposeRenderer:
             "extra_env": [
                 (name, _var(env, name, inline)) for name in project.extra_env
             ],
+            "restore_path": project.restore_path,
             "ca_bundle": project.ca_bundle,
             "ca_bundle_in_container": CA_BUNDLE_IN_CONTAINER,
             "ssl_cert_file_var": _var(env, "SSL_CERT_FILE", inline),
