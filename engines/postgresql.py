@@ -112,7 +112,11 @@ class PostgresClusterEngine(StandardSqlEngine):
                 default=7,
                 validator=at_least_one_day,
                 when=physical_only,
-                help="The next backup is a new full once the chain's full is this old.",
+                help=(
+                    "The next backup is a new full once the chain's full is this "
+                    "old. Not applied while the source has a full backup schedule "
+                    "in the dashboard."
+                ),
             ),
         ]
 
